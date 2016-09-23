@@ -1,2 +1,120 @@
-# Chapter 1
-Hello, world!
+# ECS
+
+
+## Configuring the ecs-cli
+
+Currently there are two ways of creating an ECS cluster. You can use
+the graphical interface from the AWS panel for ECS or you can make use
+of the [esc-cli](http://docs.aws.amazon.com/AmazonECS/latest/developerguide/ECS_CLI_reference.html)
+tool. We are going to focus on the latter for launching the cluster.
+
+By using any of these choices you'll get the same result which can be a little more
+tedious if you decide to configure a cluster by yourself. You'll need to launch
+instances with initial user data, security groups among other configuration.
+
+The esc-cli is pretty easy to install. You can find more details in the
+[official documentation](http://docs.aws.amazon.com/AmazonECS/latest/developerguide/ECS_CLI_installation.html),
+but basically you'll need to run one command.
+
+The version I'm currently running is:
+
+    $ ecs-cli --version
+
+Output:
+
+    ecs-cli version 0.4.4 (7e1376e)
+
+If you have the AWS CLI tool already configured, meaning you have your
+AWS access keys configured for the client, you can make use of the ecs-cli tool
+immediately. If not, you can follow the instructions provided [here](http://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html#cli-quick-configuration).
+
+
+## Creating the cluster using the Amazon ECS CLI
+
+Before we launch the cluster, we'll need a key pair for access. You can
+use an existent key or create a new one with the following command (change the profile
+with yours or leave it blank if you're using the default profile):
+
+$ aws ec2 --profile personal --region us-east-1 create-key-pair --key-name ecs --query 'KeyMaterial' --output text > ecs.pem
+
+Now we can use the configure command to add our future cluster information. This
+command will save the configuration in a file so we don't have to specify all the data
+when running future commands:
+
+    $ ecs-cli configure --profile personal --region us-east-1 --cluster my-cluster
+
+Output:
+
+    INFO[0000] Saved ECS CLI configuration for cluster (my-cluster)
+
+The configuration file is located at '~/.ecs/config'
+
+
+Now that we have the configuration ready for the cluster, we can launch it along
+with some nodes. Let's use two t2.medium nodes. We only need to pass the keypair we
+just created and the number and size of the nodes:
+
+    $ ecs-cli up --keypair ecs --capability-iam --size 2 --instance-type t2.medium
+
+Output:
+
+    INFO[0002] Created cluster                               cluster=my-cluster
+    INFO[0004] Waiting for your cluster resources to be created
+    INFO[0004] Cloudformation stack status                   stackStatus=CREATE_IN_PROGRESS
+    INFO[0066] Cloudformation stack status                   stackStatus=CREATE_IN_PROGRESS
+    INFO[0128] Cloudformation stack status                   stackStatus=CREATE_IN_PROGRESS
+    INFO[0190] Cloudformation stack status                   stackStatus=CREATE_IN_PROGRESS
+    INFO[0252] Cloudformation stack status                   stackStatus=CREATE_IN_PROGRESS
+
+This can take a while, and even after the command finishes, you'll have to wait
+the instances to be initialized so they can join the cluster.
+
+Let's use the AWS CLI to ask about our cluster:
+
+    $ aws ecs --profile personal --region us-east-1 describe-clusters
+
+Output:
+
+
+    {
+        "failures": [],
+        "clusters": [
+            {
+                "pendingTasksCount": 0,
+                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/default",
+                "status": "INACTIVE",
+                "activeServicesCount": 0,
+                "registeredContainerInstancesCount": 0,
+                "clusterName": "default",
+                "runningTasksCount": 0
+            }
+        ]
+    }
+
+There you can see the cluster I just launched was actually created but it doesn't have
+any instance instance registered yet. That's because those are still initializing.
+
+Wait for a few minutes, and let's run another command in order to get information about
+that specific cluster we just launched:
+
+    $ aws ecs --profile personal --region us-east-1 describe-clusters --clusters my-cluster
+
+Output:
+
+    {
+        "failures": [],
+        "clusters": [
+            {
+                "clusterName": "my-cluster",
+                "status": "ACTIVE",
+                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/my-cluster",
+                "registeredContainerInstancesCount": 2,
+                "runningTasksCount": 0,
+                "pendingTasksCount": 0,
+                "activeServicesCount": 0
+            }
+        ]
+    }
+
+OK, that's better. You can see our cluster now has a status of active and it has
+two instances registered.
