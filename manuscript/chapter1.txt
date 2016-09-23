@@ -117,3 +117,40 @@ Output:
 
 OK, that's better. Now you can see the cluster has a status of active and it has
 two instances registered.
+
+## DB configuration
+
+AWS ECS doesn't currently has native support for DNS discovery like Kubernetes
+has.
+
+This is a big issue when you want to run a lot of different services in the cluster
+and even bigger if lots of those service need to be non-public. This is because
+the typical form for service discovery in ECS is via Load Balancer. So every time
+you create a service that you need to be discoverable by other services, you
+need to create a Load Balancer for it. This can be expensive if you're running
+a micro-service arquitecture.
+
+Another problem with ECS is that there's no support for associating cloud storage
+to the instances. You can mount volumes from the containers to the instance, but
+that doesn't work if your container will be jumping from one instance to another, which
+is what typically occurs during deployments.
+
+This two reasons are why I recommend you to not use ECS for running containers
+that need persistence.
+
+Luckily for us, when don't have to mount a server with a database engine
+and configure the whole thing, since AWS has a very good service call RDS.
+This service will allow us to run a new database server already configured
+and that we can use to connect to our web application that will be running
+on a container.
+
+### NEXT
+
+- create RDS for postgres
+- configure app credentials
+- create task definition for app
+- register task definition
+- create load balancer for task
+- create service definition
+- run service assoaciated with load balancer
+- test everything
