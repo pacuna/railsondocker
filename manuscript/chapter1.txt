@@ -1,6 +1,5 @@
 # ECS
 
-
 ## Configuring the ecs-cli
 
 Currently there are two ways of creating an ECS cluster. You can use
@@ -35,7 +34,7 @@ Before we launch the cluster, we'll need a key pair for access. You can
 use an existent key or create a new one with the following command (change the profile
 with yours or leave it blank if you're using the default profile):
 
-$ aws ec2 --profile personal --region us-east-1 create-key-pair --key-name ecs --query 'KeyMaterial' --output text > ecs.pem
+    $ aws ec2 --profile personal --region us-east-1 create-key-pair --key-name ecs --query 'KeyMaterial' --output text > ecs.pem
 
 Now we can use the configure command to add our future cluster information. This
 command will save the configuration in a file so we don't have to specify all the data
@@ -116,5 +115,5 @@ Output:
         ]
     }
 
-OK, that's better. You can see our cluster now has a status of active and it has
+OK, that's better. Now you can see the cluster has a status of active and it has
 two instances registered.
