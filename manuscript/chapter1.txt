@@ -144,10 +144,138 @@ This service will allow us to run a new database server already configured
 and that we can use to connect to our web application that will be running
 on a container.
 
-### NEXT
+### Creating a RDS resource
 
-- create RDS for postgres
-- configure app credentials
+(show how to get the vpc id of the cluster along the subnet ids)
+
+- Creating a DB subnet group
+
+    $ aws rds create-db-subnet-group --db-subnet-group-name postgres-subnet \
+    --subnet-ids subnet-dd3ecef0 subnet-8c8b7dd7 --profile personal \
+    --region us-east-1 --db-subnet-group-description "Subnet for PostgreSQL"
+
+
+Output:
+
+    {
+        "DBSubnetGroup": {
+            "VpcId": "vpc-934161f4",
+            "DBSubnetGroupDescription": "Subnet for PostgreSQL",
+            "Subnets": [
+                {
+                    "SubnetStatus": "Active",
+                    "SubnetIdentifier": "subnet-dd3ecef0",
+                    "SubnetAvailabilityZone": {
+                        "Name": "us-east-1c"
+                    }
+                },
+                {
+                    "SubnetStatus": "Active",
+                    "SubnetIdentifier": "subnet-8c8b7dd7",
+                    "SubnetAvailabilityZone": {
+                        "Name": "us-east-1a"
+                    }
+                }
+            ],
+            "SubnetGroupStatus": "Complete",
+            "DBSubnetGroupName": "postgres-subnet",
+            "DBSubnetGroupArn": "arn:aws:rds:us-east-1:586421825777:subgrp:postgres-subnet"
+        }
+    }
+
+
+Now we can use that db subnet group to create our database:
+
+TODO: ADD SECURITY GROUP OF VPC AND OPEN PORT 5432 FOR IT. CREATE IT AGAIN!
+
+    $ aws rds create-db-instance --profile personal --region us-east-1 --db-name articles --db-instance-identifier articles-db \
+    --allocated-storage 20 --db-instance-class db.t2.medium --engine postgres \
+    --master-username articles --master-user-password mysecretpassword --db-subnet-group-name postgres-subnet
+
+Output (truncated):
+
+    {
+        "DBInstance": {
+            "MonitoringInterval": 0,
+            "PreferredBackupWindow": "06:39-07:09",
+            "DBSecurityGroups": [],
+            "StorageEncrypted": false,
+            "PreferredMaintenanceWindow": "sat:03:40-sat:04:10",
+            "DomainMemberships": [],
+            "DBParameterGroups": [
+                {
+                    "ParameterApplyStatus": "in-sync",
+                    "DBParameterGroupName": "default.postgres9.5"
+                }
+            ],
+            "LicenseModel": "postgresql-license",
+            "StorageType": "standard",
+            "CopyTagsToSnapshot": false,
+            "DBInstanceClass": "db.t2.medium",
+            "AutoMinorVersionUpgrade": true,
+            "DbiResourceId": "db-FR7GNSLTYKHAT2PV7QLTUKTLFE",
+            "CACertificateIdentifier": "rds-ca-2015",
+            "DBInstanceStatus": "creating",
+            "PubliclyAccessible": false,
+            "VpcSecurityGroups": [
+                {
+                    "Status": "active",
+                    "VpcSecurityGroupId": "sg-3cf48f46"
+                }
+            ],
+            ...
+
+
+You can query the API to get the current DB Instance status with the following command:
+
+    $ aws rds describe-db-instances --db-instance-identifier articles --profile personal --region us-east-1 --query 'DBInstances[*].{Status:DBInstanceStatus}'
+
+    [
+        {
+            "Status": "creating"
+        }
+    ]
+
+Wait for a few minutes until the DB is ready and the status becomes available:
+
+    [
+        {
+            "Status": "available"
+        }
+    ]
+
+Now we only need to know the endpoint AWS gave to the server:
+
+    $ aws rds describe-db-instances --db-instance-identifier articles-db --profile personal --region us-east-1 --query 'DBInstances[*].{URL:Endpoint.Address}'
+
+Output:
+
+    [
+        {
+            "URL": "articles-db.caxygd3nh0bk.us-east-1.rds.amazonaws.com"
+        }
+    ]
+
+Great! Now we have our database ready. Let's configure the production section
+of the config/database.yml file:
+
+    production:
+      <<: *default
+      host: articles-db.caxygd3nh0bk.us-east-1.rds.amazonaws.com
+      database: articles
+      username: articles
+      password: mysecretpassword
+
+
+Let's rebuild our Docker image and add a tag for ECS:
+
+    $ docker build -t pacuna/articles:ecs_v1 .
+
+And push it to DockerHub:
+
+    $ docker push pacuna/articles:ecs_v1
+
+
 - create task definition for app
 - register task definition
 - create load balancer for task
