@@ -188,47 +188,91 @@ Now we can use that db subnet group to create our database:
 
 TODO: ADD SECURITY GROUP OF VPC AND OPEN PORT 5432 FOR IT. CREATE IT AGAIN!
 
-    $ aws rds create-db-instance --profile personal --region us-east-1 --db-name articles --db-instance-identifier articles-db \
+    $ aws rds create-db-instance --region us-east-1 --db-name articles --db-instance-identifier articles-db \
     --allocated-storage 20 --db-instance-class db.t2.medium --engine postgres \
-    --master-username articles --master-user-password mysecretpassword --db-subnet-group-name postgres-subnet
+    --master-username articles --master-user-password mysecretpassword --db-subnet-group-name postgres-subnet \
+    --vpc-security-group-ids sg-daf48fa0
 
-Output (truncated):
+
+Output:
 
     {
         "DBInstance": {
-            "MonitoringInterval": 0,
-            "PreferredBackupWindow": "06:39-07:09",
-            "DBSecurityGroups": [],
-            "StorageEncrypted": false,
-            "PreferredMaintenanceWindow": "sat:03:40-sat:04:10",
-            "DomainMemberships": [],
-            "DBParameterGroups": [
-                {
-                    "ParameterApplyStatus": "in-sync",
-                    "DBParameterGroupName": "default.postgres9.5"
-                }
-            ],
-            "LicenseModel": "postgresql-license",
-            "StorageType": "standard",
-            "CopyTagsToSnapshot": false,
-            "DBInstanceClass": "db.t2.medium",
-            "AutoMinorVersionUpgrade": true,
-            "DbiResourceId": "db-FR7GNSLTYKHAT2PV7QLTUKTLFE",
-            "CACertificateIdentifier": "rds-ca-2015",
-            "DBInstanceStatus": "creating",
             "PubliclyAccessible": false,
+            "MasterUsername": "articles",
+            "MonitoringInterval": 0,
+            "LicenseModel": "postgresql-license",
             "VpcSecurityGroups": [
                 {
                     "Status": "active",
-                    "VpcSecurityGroupId": "sg-3cf48f46"
+                    "VpcSecurityGroupId": "sg-daf48fa0"
                 }
             ],
-            ...
+            "CopyTagsToSnapshot": false,
+            "OptionGroupMemberships": [
+                {
+                    "Status": "in-sync",
+                    "OptionGroupName": "default:postgres-9-5"
+                }
+            ],
+            "PendingModifiedValues": {
+                "MasterUserPassword": "****"
+            },
+            "Engine": "postgres",
+            "MultiAZ": false,
+            "DBSecurityGroups": [],
+            "DBParameterGroups": [
+                {
+                    "DBParameterGroupName": "default.postgres9.5",
+                    "ParameterApplyStatus": "in-sync"
+                }
+            ],
+            "AutoMinorVersionUpgrade": true,
+            "PreferredBackupWindow": "05:52-06:22",
+            "DBSubnetGroup": {
+                "Subnets": [
+                    {
+                        "SubnetStatus": "Active",
+                        "SubnetIdentifier": "subnet-dd3ecef0",
+                        "SubnetAvailabilityZone": {
+                            "Name": "us-east-1c"
+                        }
+                    },
+                    {
+                        "SubnetStatus": "Active",
+                        "SubnetIdentifier": "subnet-8c8b7dd7",
+                        "SubnetAvailabilityZone": {
+                            "Name": "us-east-1a"
+                        }
+                    }
+                ],
+                "DBSubnetGroupName": "postgres-subnet",
+                "VpcId": "vpc-934161f4",
+                "DBSubnetGroupDescription": "Subnet for PostgreSQL",
+                "SubnetGroupStatus": "Complete"
+            },
+            "ReadReplicaDBInstanceIdentifiers": [],
+            "AllocatedStorage": 20,
+            "BackupRetentionPeriod": 1,
+            "DBName": "articles",
+            "PreferredMaintenanceWindow": "sat:06:41-sat:07:11",
+            "DBInstanceStatus": "creating",
+            "EngineVersion": "9.5.2",
+            "DomainMemberships": [],
+            "StorageType": "standard",
+            "DbiResourceId": "db-JD5W6CCXXDLHIPJMWSMWWAFKSI",
+            "CACertificateIdentifier": "rds-ca-2015",
+            "StorageEncrypted": false,
+            "DBInstanceClass": "db.t2.medium",
+            "DbInstancePort": 0,
+            "DBInstanceIdentifier": "articles-db"
+        }
+    }
 
 
 You can query the API to get the current DB Instance status with the following command:
 
-    $ aws rds describe-db-instances --db-instance-identifier articles --profile personal --region us-east-1 --query 'DBInstances[*].{Status:DBInstanceStatus}'
+    $ aws rds describe-db-instances --db-instance-identifier articles-db --query 'DBInstances[*].{Status:DBInstanceStatus}'
 
     [
         {
@@ -244,9 +288,9 @@ Wait for a few minutes until the DB is ready and the status becomes available:
         }
     ]
 
-Now we only need to know the endpoint AWS gave to the server:
+Once the server is available, we can query the endpoint AWS gave to the DB:
 
-    $ aws rds describe-db-instances --db-instance-identifier articles-db --profile personal --region us-east-1 --query 'DBInstances[*].{URL:Endpoint.Address}'
+    $ aws rds describe-db-instances --db-instance-identifier articles-db --query 'DBInstances[*].{URL:Endpoint.Address}'
 
 Output:
 
@@ -266,19 +310,287 @@ of the config/database.yml file:
       username: articles
       password: mysecretpassword
 
-
 Let's rebuild our Docker image and add a tag for ECS:
 
-    $ docker build -t pacuna/articles:ecs_v1 .
+    $ docker build -t pacuna/articles:ecs-v_0 .
 
 And push it to DockerHub:
 
-    $ docker push pacuna/articles:ecs_v1
+    $ docker push pacuna/articles:ecs-v_0
 
+Once it finishes, let's create an skeleton task definition for our application with the following command:
 
-- create task definition for app
-- register task definition
-- create load balancer for task
-- create service definition
-- run service assoaciated with load balancer
-- test everything
+    $ aws ecs register-task-definition --generate-cli-skeleton > articles.json
+
+That's going to create an empty task definition we can fill out with our data.
+
+Let's clean up the file a little bit and the information for our first task definition.
+Open the file and replace its content with:
+
+    {
+        "family": "articles",
+        "containerDefinitions": [
+            {
+                "name": "articles",
+                "image": "pacuna/articles:ecs-v_0",
+                "cpu": 500,
+                "memory": 500,
+                "portMappings": [
+                    {
+                        "containerPort": 80,
+                        "hostPort": 80,
+                        "protocol": "tcp"
+                    }
+                ],
+                "essential": true,
+                "environment": [
+                    {
+                        "name": "PASSENGER_APP_ENV",
+                        "value": "production"
+                    }
+                ]
+            }
+        ]
+    }
+
+Now we can register this file with:
+
+    $ aws ecs register-task-definition --cli-input-json file://ecs/task-definitions/articles.json
+
+Output:
+
+    {
+        "taskDefinition": {
+            "status": "ACTIVE",
+            "family": "articles",
+            "volumes": [],
+            "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
+            "containerDefinitions": [
+                {
+                    "environment": [
+                        {
+                            "name": "PASSENGER_APP_ENV",
+                            "value": "production"
+                        }
+                    ],
+                    "name": "articles",
+                    "mountPoints": [],
+                    "image": "pacuna/articles:ecs-v_0",
+                    "cpu": 500,
+                    "portMappings": [
+                        {
+                            "protocol": "tcp",
+                            "containerPort": 80,
+                            "hostPort": 80
+                        }
+                    ],
+                    "memory": 500,
+                    "essential": true,
+                    "volumesFrom": []
+                }
+            ],
+            "revision": 5
+        }
+    }
+
+The importan part of the output is the family name which we declared in the json file,
+and the revision number. Every time we modify a task definition we create a new
+revision. In this case I got revision 5 because I've been playing around with this
+task.
+
+We can run this task with:
+
+    $ aws ecs run-task --task-definition articles:5 --cluster my-cluster
+
+Output:
+
+    {
+        "failures": [],
+        "tasks": [
+            {
+                "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+                "overrides": {
+                    "containerOverrides": [
+                        {
+                            "name": "articles"
+                        }
+                    ]
+                },
+                "lastStatus": "PENDING",
+                "containerInstanceArn": "arn:aws:ecs:us-east-1:586421825777:container-instance/02a39ed9-9364-4449-969d-e19762013a24",
+                "createdAt": 1474745245.239,
+                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/my-cluster",
+                "desiredStatus": "RUNNING",
+                "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
+                "containers": [
+                    {
+                        "containerArn": "arn:aws:ecs:us-east-1:586421825777:container/3fb816c9-a9b2-400e-a104-4bb99e20ad84",
+                        "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+                        "lastStatus": "PENDING",
+                        "name": "articles"
+                    }
+                ]
+            }
+        ]
+    }
+
+That command is going to run our container somewhere in the cluster. If we want
+to get more info about our task, first we have to get its identifier:
+
+    $ aws ecs list-tasks --cluster my-cluster
+
+Output:
+
+    {
+        "taskArns": [
+            "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82"
+        ]
+    }
+
+Now we can use that identifier in order we what we want:
+
+    $ aws ecs describe-tasks --tasks arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82 --cluster my-cluster
+
+Output:
+
+    {
+        "failures": [],
+        "tasks": [
+            {
+                "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+                "overrides": {
+                    "containerOverrides": [
+                        {
+                            "name": "articles"
+                        }
+                    ]
+                },
+                "lastStatus": "RUNNING",
+                "containerInstanceArn": "arn:aws:ecs:us-east-1:586421825777:container-instance/02a39ed9-9364-4449-969d-e19762013a24",
+                "createdAt": 1474745245.239,
+                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/my-cluster",
+                "startedAt": 1474745246.911,
+                "desiredStatus": "RUNNING",
+                "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
+                "containers": [
+                    {
+                        "containerArn": "arn:aws:ecs:us-east-1:586421825777:container/3fb816c9-a9b2-400e-a104-4bb99e20ad84",
+                        "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+                        "lastStatus": "RUNNING",
+                        "name": "articles",
+                        "networkBindings": [
+                            {
+                                "protocol": "tcp",
+                                "bindIP": "0.0.0.0",
+                                "containerPort": 80,
+                                "hostPort": 80
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+
+We can see the last status was running. If in your case it says pending, just wait
+until the image gets pulled and the container starts.
+
+Now, we know our application is not going to work out of the box. We have our database
+created but we haven't run the migrations yet.
+In Kubernetes we used the concept of jobs for running this kind of stuff. In this case
+we are going to run a task that's going to override a task definition. This means
+we can run this same task but with an override for its entrypoint, which is what we need.
+
+Let's create a new json file that's going to contain the overrides for the migrations:
+
+    $ touch ecs/task-definitions/migrate-overrides.json
+
+And add the following to it:
+
+    {
+      "containerOverrides": [
+        {
+          "name": "articles",
+          "command": ["bin/rails", "db:migrate", "RAILS_ENV=production"],
+          "environment": [
+            {
+              "name": "PASSENGER_APP_ENV",
+              "value": "production"
+            }
+          ]
+        }
+      ]
+    }
+
+As you can see, there's nothing crazy going on there. We are just setting a new
+entrypoint and making sure the environmental variables are kept.
+
+In order to run a task with this overrides we can run the following command:
+
+    $ aws ecs run-task --task-definition articles:5 --overrides file://ecs/task-definitions/migrate-overrides.json --cluster my-cluster
+
+That's going to take our same task definition, overrides its entrypoint so the migrations
+are executed, and then the task will be stopped.
+
+Now we just need to get the IP address of the node that's running our application.
+This can be a little bit tedious to do using the AWS CLI, but don't worry. Later we'll
+create a service with an associated Load Balancer that's going to give us a static
+DNS for our container.
+
+This are the steps to get the IP address of the node that's running the task:
+
+1) Get our task identifier:
+
+    $ aws ecs list-tasks --cluster my-cluster
+
+    {
+        "taskArns": [
+            "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82"
+        ]
+    }
+
+2) Describe the task with that identifier filter by the container instance identifier:
+
+    $ aws ecs describe-tasks --tasks arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82 --cluster my-cluster --query="tasks[*].containerInstanceArn"
+
+    [
+        "arn:aws:ecs:us-east-1:586421825777:container-instance/02a39ed9-9364-4449-969d-e19762013a24"
+    ]
+
+3) Using the instance identifier, get the instance id:
+
+    $ aws ecs describe-container-instances --container-instances arn:aws:ecs:us-east-1:586421825777:container-instance/02a39ed9-9364-4449-969d-e19762013a24 --query="containerInstances[*].ec2InstanceId" --cluster my-cluster
+
+    [
+        "i-21762a10"
+    ]
+
+4) Using that id, get the IP address by using the EC2 API:
+
+    $ aws ec2 describe-instances --instance-ids i-21762a10 --query="Reservations[0].Instances[0].PublicIpAddress"
+
+    "54.196.162.145"
+
+Now, let's CURL that ip address to see if it's actually responding:
+
+    $ curl -I http://54.196.162.145/articles
+
+    HTTP/1.1 200 OK
+    Content-Type: application/json; charset=utf-8
+    Connection: keep-alive
+    Status: 200 OK
+    Cache-Control: max-age=0, private, must-revalidate
+    ETag: W/"4f53cda18c2baa0c0354bb5f9a3ecbe5"
+    X-Frame-Options: SAMEORIGIN
+    X-XSS-Protection: 1; mode=block
+    X-Content-Type-Options: nosniff
+    X-Runtime: 0.002354
+    X-Request-Id: 2086674f-9d72-4d27-9519-e3a499c440e0
+    Date: Sat, 24 Sep 2016 19:57:55 GMT
+    X-Powered-By: Phusion Passenger 5.0.29
+    Server: nginx/1.10.1 + Phusion Passenger 5.0.29
+
+Great! Our application is up and running with no errors.
+In the next section we'll create a service that's going to keep our task alive
+24/7 and also create a Load Balancer so we can have a static address for our
+application.
