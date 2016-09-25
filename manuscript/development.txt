@@ -706,7 +706,7 @@ a Rails application, since all the logging is piped to a file in the log's direc
 Luckily for us, we just need to change one line in our source code to send the logs
 to the `STDOUT` connection.
 
-Open the 'config/application.rb` file and add the following configuration:
+Open the `config/application.rb` file and add the following configuration:
 
     config.logger = Logger.new(STDOUT)
 
@@ -715,7 +715,7 @@ with the `docker-compose logs` tool.
 To apply this change, let's stop the `docker-compose up` command with `C-c` and
 rebuild the project:
 
-    $ # C-c
+    $ # kill the process with C-c
 
 Output:
 
