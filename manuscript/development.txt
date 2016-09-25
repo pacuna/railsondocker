@@ -833,5 +833,25 @@ Output (truncated):
     662bc11192df: Waiting
     ...
 
-And that's it! Now our image is ready for being deployed with the orquestration
+And that's it! Now our image is ready for being deployed with the orchestration
 framework we want to use.
+
+Those steps for generating an image and pushing it to dockerhub can be automated
+easily with a bash script. 
+Let's generate a new script file for this task:
+
+    $ touch push.sh
+    $ chmod +x push
+
+And add the following:
+
+    #!/bin/sh
+
+    LC=$(git rev-parse --short HEAD)
+    docker build -t pacuna/webapp:${LC} .
+    docker push pacuna/webapp:${LC}
+
+Now, every time we need to push to DockerHub from our local machine we can
+just run `./push.sh`
+
+
