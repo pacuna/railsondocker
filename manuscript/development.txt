@@ -754,25 +754,84 @@ ruins the whole point of clustered applications.
 
 ## Pushing the app to DockerHub
 
-In order to be able to run our web application with Kubernetes, we need to push
-our image to some registry. Let's use a public repository from DockerHub and
-later I'll show how you can use a private one.
+In order to be able to run our web application with Kubernetes or ECS, we need to push
+our image to some registry. Let's use a public repository from DockerHub.
 
 First, make sure you are logged in with your Docker account by running:
 
     $ docker login
 
-That's going to ask you for your DockerHub credentials. Now go to `https://hub.docker.com/`
-and create a new public repository and name it `articles`.
+That's going to ask you for your DockerHub credentials.
 
-Now, let's build an initial version of our application. Replace `username` with yours:
+Now go to `https://hub.docker.com/` and create a new public repository and name it `webapp`.
 
+A change that we want to make first, it's to create a dockerignore file. 
+I said before that we want to keep our images as lightest as possible, so the same way we do
+did our Git Repositories, there are some files we can ommit.
+Let's create .dockerignore file and add the files we don't want to copy into our
+images:
 
-    $ docker build -t username/articles:v_0 .
+    $ touch .dockerignore
 
-And now push it to your remote repository:
+And add:
 
-    $ docker push username/articles:v_0
+    # Ignore bundler config.
+    /.bundle
 
-Now we can start writing the Kubernetes templates for deploying our application.
+    # Ignore all logfiles and tempfiles.
+    /log/*
+    /tmp/*
+    !/log/.keep
+    !/tmp/.keep
 
+    # Ignore Byebug command history file.
+    .byebug_history
+
+We are basically copying what's inside of the .gitignore file for a standard Rails app.
+
+Now, let's build an initial version of our application. A practice that I've found to be
+good and clear, is to tag the images accord to your latest Git commit hash. Of course
+we want to use the short version of the commit.
+
+First, we have to tell git that this is a repository, so in the root of your
+application run:
+
+    $ git init
+    $ git add -A
+    $ git commit -m 'Add dockerized Rails app'
+
+Now we can save the short version of the latest commit hash with:
+
+    LC=$(git rev-parse --short HEAD)
+
+That's very convenient for tagging our image using that variable instead of copying
+the string.
+
+Let's build our first image using that tag. Replace my username with your DockerHub username
+and also the repository name in case you didn't use `webapp`:
+
+    $ docker build -t pacuna/webapp:${LC} .
+
+And now push it to the remote repository:
+
+    $ docker push pacuna/webapp:${LC}
+
+Output (truncated):
+
+    The push refers to a repository [docker.io/pacuna/webapp]
+    70e47e879cb0: Pushed
+    2f00f00b770f: Pushed
+    6a061828948b: Pushed
+    87db749cfa82: Pushed
+    f7feb319b319: Pushed
+    0945e5099009: Pushing [==>                                                ] 4.929 MB/105.2 MB
+    90f2b6e5ebff: Pushing [==================================================>] 5.632 kB
+    20138267dbc3: Pushed
+    094f4202572b: Pushing [==================================================>] 3.584 kB
+    f9cdde53d648: Pushing [==================================================>] 3.584 kB
+    fa4354a3646d: Waiting
+    662bc11192df: Waiting
+    ...
+
+And that's it! Now our image is ready for being deployed with the orquestration
+framework we want to use.
