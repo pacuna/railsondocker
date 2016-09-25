@@ -186,8 +186,6 @@ Output:
 
 Now we can use that db subnet group to create our database:
 
-TODO: ADD SECURITY GROUP OF VPC AND OPEN PORT 5432 FOR IT. CREATE IT AGAIN!
-
     $ aws rds create-db-instance --region us-east-1 --db-name articles --db-instance-identifier articles-db \
     --allocated-storage 20 --db-instance-class db.t2.medium --engine postgres \
     --master-username articles --master-user-password mysecretpassword --db-subnet-group-name postgres-subnet \
@@ -300,8 +298,54 @@ Output:
         }
     ]
 
-Great! Now we have our database ready. Let's configure the production section
-of the config/database.yml file:
+Great! Now we have our database ready. But before configure it in our application we have
+to do one thing.
+Right now we are using the cluster's security group. Currently this group
+should only have an inbound rule for the port 80. What we want is to allow
+free traffic between elements that live inside this VPC.
+
+First, let's list our existent security groups with their names and ids so we can
+find the one that ECS created for us:
+
+    $ aws ec2 describe-security-groups --query="SecurityGroups[*].{Name:GroupName,ID:GroupId}"
+
+Output:
+
+    [
+        {
+            "Name": "default",
+            "ID": "sg-0132736a"
+        },
+        {
+            "Name": "amazon-ecs-cli-setup-my-cluster-EcsSecurityGroup-197TU7Y7R76ZV",
+            "ID": "sg-daf48fa0"
+        },
+        {
+            "Name": "default",
+            "ID": "sg-3cf48f46"
+        },
+        {
+            "Name": "default",
+            "ID": "sg-5291fa35"
+        }
+    ]
+
+As you can see, I have a couple of duplicated default security groups but there
+in between you can see the cluster security group and you should see it two in
+your output. Let's grab that id and create a new ingress rule that's going to
+allow all traffic from inside that same group.
+
+We can create a custom rule for this with the following command:
+
+    $ aws ec2 authorize-security-group-ingress --group-id sg-daf48fa0 --protocol all --port all --source-group sg-daf48fa0
+
+Let's also add a rule for accessing the nodes via ssh from anywhere. This can be useful
+for debugging and diagnose container errors:
+
+    $ aws ec2 authorize-security-group-ingress --group-id sg-daf48fa0 --protocol tcp --port 22 --cidr 0.0.0.0/0
+
+
+Now we can configure the production database credentials in our application:
 
     production:
       <<: *default
