@@ -1,0 +1,1936 @@
+# Kubernetes
+
+## Structuring the files
+
+In order to keep a better application structure, let's add
+some folders for the Kubernetes configuration.
+
+We'll use a `kube` folder, and two subfolders, `development` and `production`.
+As you can imagine, the production templates are going to be a little different
+than the development ones, since some elements cannot be replicated on development
+such as Load Balancers and AWS data storages. Don't confuse this development with
+your development environment. Every time we talk about Kubernetes on development
+environment, we refer to test our cluster locally, not to actually the development
+environment that we use daily for writing our code. For that we still have to use
+tools like Docker Compose is we want to use containers.
+
+    $ mkdir -p kube
+    $ mkdir -p kube/development
+    $ mkdir -p kube/production
+
+## Deployment templates
+
+### PostgreSQL
+
+Let's add a development file for the PostgreSQL deployment:
+
+    $ touch kube/development/postgres-deployment.yaml
+
+And add the following:
+
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: postgres
+      labels:
+        app: articles
+    spec:
+      ports:
+        - port: 5432
+      selector:
+        app: articles
+        tier: postgres
+      clusterIP: None
+    ---
+    apiVersion: extensions/v1beta1
+    kind: Deployment
+    metadata:
+      name: postgres
+      labels:
+        app: articles
+    spec:
+      strategy:
+        type: RollingUpdate
+      template:
+        metadata:
+          labels:
+            app: articles
+            tier: postgres
+        spec:
+          containers:
+          - image: postgres:9.5.3
+            name: postgres
+            env:
+            - name: POSTGRES_PASSWORD
+              value: mysecretpassword
+            - name: POSTGRES_USER
+              value: articles
+            ports:
+            - containerPort: 5432
+              name: postgres
+
+
+That's kind of a long YAML file (and it'll get bigger), but keep in mind
+that the file contains all the necessary elements that we need for the PostgreSQL
+deployments. It'll generate the Pod, the replica set that's going to manage the pod
+and also the service so our web application and the setup container can reach
+it by using the same alias we used in development.
+
+Let's go section by section:
+
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: postgres
+      labels:
+        app: articles
+    spec:
+      ports:
+        - port: 5432
+      selector:
+        app: articles
+        tier: postgres
+      clusterIP: None
+
+The first section of the file is the service declaration. In the deployment file
+we can declare more than one kind, and we separate them by using `---`.
+
+This service has a name `postgres`, meaning that we are going to be able to use
+that alias for communicating with it from our cluster. It also has a label
+that can be useful for doing filtering.
+
+The spec section will tell the service where it should be routing
+the requests. In this case is going to match two selectors: `app` and `tier`
+with the values articles, which is the main context, and the tier which
+is postgres.
+
+The `tier` is the selector that's going to differentiate the
+web application containers and the PostgreSQL container, since both are going
+to have an `app` selector with the value `articles` but a different `tier` selector
+value. The purpose of the `app` selector is that you are to able to have several
+different applications running in cluster, and for example if you have another application
+named `users` for example, you can have the same `postgres` tier but a different `app`
+label.
+
+We are also indicating the communication port should be 5432, which is the standard
+for PostgreSQL. And finally we are telling Kubernetes that this service should be
+only accessed from inside the cluster by using `clusterIP` setted to `None`. That means
+you won't be able to touch this endpoint from outside the cluster.
+
+    apiVersion: extensions/v1beta1
+    kind: Deployment
+    metadata:
+      name: postgres
+      labels:
+        app: articles
+    spec:
+      strategy:
+        type: RollingUpdate
+      template:
+        metadata:
+          labels:
+            app: articles
+            tier: postgres
+        spec:
+          containers:
+          - image: postgres:9.5.3
+            name: postgres
+            env:
+            - name: POSTGRES_PASSWORD
+              value: mysecretpassword
+            - name: POSTGRES_USER
+              value: articles
+            ports:
+            - containerPort: 5432
+              name: postgres
+
+The second section corresponds to the deployment it self.
+
+We start by adding the same metadata we used for the service and then the
+specifications. We then define our strategy as `RollingUpdate`. This means
+that old Pods won't be killed before new ones are created. Instead
+they will be replaced in a rolling-update fashion. So you're going to have
+several copies of your pods running simultaneously.
+
+Then, for the template, we have to specify the match we need for this
+replica set and pods. As I mentioned before, the service will be looking
+for two labels: `app` and `tier` and it must match this metadata.
+
+Finally we define the specifications for the containers. This is pretty
+similar to the Docker Compose file structure and it contains the image, the
+environmental variables, the port and the container name.
+
+And that's it for the PostgreSQL deployment for now. Later we'll add another
+section for the persistence storage.
+
+### Setup Container
+
+In the case of the setup container, we don't need a replica set, service nor
+deployment. We only need a pod that gets the job done. For that we are going to use
+a Kubernetes [job](http://kubernetes.io/docs/user-guide/jobs/). Think of a Job
+as a special kind of pod that was meant to be use for these kinds of tasks.
+It's going to create a pod that'll run the command we indicate and it'll end
+after the container finishes.
+
+The syntax for writing a Job template is quite simple. Let's create the file:
+
+    $ touch kube/development/setup-job.yaml
+
+And add the following:
+
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: setup
+    spec:
+      template:
+        metadata:
+          name: setup
+        spec:
+          containers:
+          - name: setup
+            image: pacuna/articles:v_0
+            command: ["/bin/bash", "./setup.sh"]
+            env:
+            - name: PASSENGER_APP_ENV
+              value: development
+          restartPolicy: Never
+
+This pod has a very simple definition. It has a `restartPolicy` of never, so
+once it finishes it doesn't get restarted by the scheduler.
+
+The `containers` section contains the specs for the image that we just pushed
+to DockerHub (remember to change with yours).
+
+Similar to what we did with Docker Compose, we set the necessary environmental variables, add
+and a command instruction for running our custom entrypoint.
+
+As you can see, in Kubernetes there's not an `entrypoint` instruction but a `command` key
+that behaves in a similar fashion.
+
+### Web Application
+
+This deployment file is also going to have two kinds, a service and a deployment.
+
+    $ touch kube/development/articles-deployment.yaml
+
+And add the following template:
+
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: articles
+      labels:
+        app: articles
+    spec:
+      ports:
+        - port: 80
+      selector:
+        app: articles
+        tier: frontend
+      type: NodePort
+    ---
+    apiVersion: extensions/v1beta1
+    kind: Deployment
+    metadata:
+      name: articles
+      labels:
+        app: articles
+    spec:
+      strategy:
+        type: RollingUpdate
+      template:
+        metadata:
+          labels:
+            app: articles
+            tier: frontend
+        spec:
+          containers:
+          - image: username/articles:v_0
+            name: articles
+            env:
+            - name: PASSENGER_APP_ENV
+              value: development
+            ports:
+            - containerPort: 80
+              name: articles
+            imagePullPolicy: Always
+
+Let's go by section. First, the service definition is pretty similar to the one
+we have for the PostgreSQL deployment. The difference here is we are using a new set of
+selectors. The PostgreSQL uses a tier named `postgres`, and this one uses a tier named
+`frontend`. This way the service can route the requests to the correct replica set
+that has those same labels.
+
+Another difference is we are using a `type` for the service. On development we use
+the type `NodePort`. Which is a way of exposing a port for accessing the application
+from outside the cluster. On production we'll use a `LoadBalancer` type, type that
+we don't have for our local cluster. The difference between these two types is that
+the `NodePort` will expose a random port from the cluster for accessing the application.
+This port can't change between deploys. On the other side, the `LoadBalancer` type, will
+use the provider's api (AWS or GCE) for creating a real Load Balancer in your account.
+And this Load Balancer will have a static DNS we can use for connecting to the service, and also
+will balance the requests between all the pods replicas we declare in the specs.
+
+Then we have the deployment section. This section contains the metadata with
+the respective name and label and the specification section. We are using a `RollingUpdate`
+strategy for the new deployments. Then we declare the labels so the service
+can locale the respective replica set.
+
+Finally we have the container specifications. We are using the image we pushed to
+DockerHub (replace with yours), passing the `PASSENGER_APP_ENV` variable
+for setting the Rails environment, exposing the port and adding an `imagePullPolicy`
+in order to always force the pull.
+
+Your final structure for the deployment files should be something like:
+
+    ├── kube
+    │   ├── development
+    │   │   ├── articles-deployment.yaml
+    │   │   ├── postgres-deployment.yaml
+    │   │   └── setup-job.yaml
+    │   └── production
+
+Now it's time to try those templates on a local cluster. For that we are going
+to use a very handy tool called Minikube.
+
+## Minikube
+
+According to the [official Minikube repository](https://github.com/kubernetes/minikube):
+
+> Minikube is a tool that makes it easy to run Kubernetes locally.
+
+Before Minikube, running Kubernetes locally was pretty hard. You had some alternatives
+like running a cluster using Vagrant or just use plain Docker.
+Minikube gives you a much better experience in my opinion. Most of the setup is
+pretty transparent for us and as with all the Kubernetes tooling, it just works.
+
+We'll use Minikube in order to test our Kubernetes configuration files
+without having to launch test servers in the cloud. That's a very big step
+in the container orchestration world. Even though Docker reduces the friction
+between development and production environments, you still need to make the transition
+between your local *deployment* and  your real production deployment.
+
+Now, don't confuse testing your cluster locally with local development. Minikube isn't
+yet a development tool, but a tool for testing your cluster's configuration before
+shipping it to production. You still need to use Docker and Docker Compose or any
+other tool you use daily to work on your code.
+
+You can find the installation instructions for Minikube in the [official repository](https://github.com/kubernetes/minikube).
+
+The version I have on my machine is 0.6.0 and I'll be using the `xhyve` driver.
+You can use whatever is best for your platform.
+
+You also need the `kubectl` CLI tool for launching the services and
+deployments. [Here](http://kubernetes.io/docs/user-guide/prereqs/) you can find the instructions for installing `kubectl`.
+This CLI tool communicates with our cluster in order to run containers and
+services. It has a pretty solid integration with cloud services like Amazon AWS
+and Google's GCE. This tool will be our main channel of interaction with our cluster.
+
+This is the information for the version I have:
+
+    Client Version: version.Info{Major:"1", Minor:"4+", GitVersion:"v1.4.0-alpha.1", GitCommit:"897d2770950db06d4c6a51f10b4fcf6d389f9736", GitTreeState:"clean", BuildDate:"2016-07-11T20:14:46Z", GoVersion:"go1.6.2", Compiler:"gc", Platform:"darwin/amd64"}
+    Server Version: version.Info{Major:"1", Minor:"3", GitVersion:"v1.3.0", GitCommit:"283137936a498aed572ee22af6774b6fb6e9fd94", GitTreeState:"clean", BuildDate:"1970-01-01T00:00:00Z", GoVersion:"go1.6.1", Compiler:"gc", Platform:"linux/amd64"}
+
+Make sure you're using that version or a newer one.
+
+Once you have Minikube and kubectl ready to go, you can create your local
+cluster by running:
+
+    $ minikube start
+
+That can take a few minutes the first time. Once it finishes, you should see an output
+similar to this:
+
+    Starting local Kubernetes cluster...
+    Kubernetes is available at https://192.168.99.100:8443.
+    Kubectl is now configured to use the cluster.
+
+Meaning your local Kubernetes cluster is running.
+
+Minikube gives a handful set of commands for interacting with the cluster.
+For example you can run:
+
+    $ minikube dashboard
+
+Which will open your default browser and take you to the Kubernetes UI
+where you can see all the workloads running in the cluster. Right now we shouldn't
+have any. You can also run tasks and services from this Dashboard. I don't think
+many people would actually use the UI as a main way of managing their services, but
+it's still a nice to have element for monitoring and have a quick view of what's happening in our
+cluster.
+
+### Running our templates with Minikube
+
+Sadly, Kubernetes currently doesn't have a dependency mechanism like Docker Compose
+does. So we have to create our resources in the correct order.
+
+The first `kubectl` command you should know, is the `create -f` command. This command
+can saves us a lot of headaches from trying to memorize different syntaxes for
+running different Kubernetes kinds. You can pass any template as an argument
+to this command, and as long as you have the `Kind` defined in the template, `kubectl`
+will know what to do with it.
+
+Let's start with the PostgreSQL deployment template.
+
+Run the following command from the root of the application:
+
+    $ kubectl create -f kube/development/postgres-deployment.yaml
+
+Output:
+
+    service "postgres" created
+    deployment "postgres" created
+
+We can describe our new deployment with:
+
+    $ kubectl describe deployment postgres
+
+Output:
+
+    Name:                   postgres
+    Namespace:              default
+    CreationTimestamp:      Sun, 24 Jul 2016 11:32:00 -0400
+    Labels:                 app=articles
+    Selector:               app=articles,tier=postgres
+    Replicas:               1 updated | 1 total | 0 available | 1 unavailable
+    StrategyType:           RollingUpdate
+    MinReadySeconds:        0
+    RollingUpdateStrategy:  1 max unavailable, 1 max surge
+    OldReplicaSets:         <none>
+    NewReplicaSet:          postgres-524157917 (1/1 replicas created)
+    Events:
+      FirstSeen     LastSeen        Count   From                            SubobjectPath       Type            Reason                  Message
+      ---------     --------        -----   ----                            -------------       --------        ------                  -------
+      33s           33s             1       {deployment-controller }           Normal           ScalingReplicaSet       Scaled up replica set postgres-524157917 to 1
+
+If you run `minikube dashboard` again, you should see the new workloads.
+
+This deployment generates a service, a replica set and a pod.
+If you want to see the events for the Pod, you can run:
+
+    $ kubectl describe pod postgres
+
+And you'll have a big output that describes the pod specifications and also
+the events in case something goes wrong.
+
+Now that we have our database running, let's launch the setup job that's
+going to run the migrations for the application:
+
+    $ kubectl create -f kube/development/setup-job.yaml
+
+Output:
+
+    job "setup" created
+
+This can take a few minutes the first time, since it has to pull the entire
+image from DockerHub.
+
+To see what's happening with our Job, we can filter the Job's pods by the Job's name
+and the run the logs command for that pod.
+
+First let's get the name of the pod. The name we used for the job was `setup`:
+
+
+    $ pods=$(kubectl get pods --selector=job-name=setup --output=jsonpath={.items..metadata.name})
+
+Now if you run `echo $pods` you'll get the name of the associated pod.
+
+Let's see the logs:
+
+    $ kubectl logs $pods
+
+Output:
+
+    Waiting PostgreSQL to start on 5432...
+    PostgreSQL started
+    == 20160723153218 CreateArticles: migrating ===================================
+    -- create_table(:articles)
+       -> 0.0062s
+    == 20160723153218 CreateArticles: migrated (0.0065s) ==========================
+
+    == 20160725010251 AddSlugToArticles: migrating ================================
+    -- add_column(:articles, :slug, :string)
+       -> 0.0009s
+    == 20160725010251 AddSlugToArticles: migrated (0.0013s) =======================
+
+Cool! So the container ran the migrations and then died. Just what we wanted.
+
+Now, let's run the last piece, the web application:
+
+    $ kubectl create -f kube/development/articles-deployment.yaml
+
+Output:
+
+    You have exposed your service on an external port on all nodes in your
+    cluster.  If you want to expose this service to the external internet, you may
+    need to set up firewall rules for the service port(s) (tcp:30097) to serve traffic.
+
+    See http://releases.k8s.io/HEAD/docs/user-guide/services-firewalls.md for more details.
+    service "articles" created
+    deployment "articles" created
+
+Don't worry about that warning. That message would be relevant only if we were
+using this service type on a production cluster.
+
+This command should run much faster than the previous one, since we already have the image
+on the cluster. Let's check that by running:
+
+    $ kubectl get pods
+
+Output:
+
+    NAME                        READY     STATUS    RESTARTS   AGE
+    articles-1992548935-5es1h   1/1       Running   0          3m
+    postgres-524157917-pxhj0    1/1       Running   0          22m
+
+Now copy that pod name for your articles containers (it will be different than mine)
+and check the logs:
+
+    $ kubectl logs articles-1992548935-5es1h
+
+Output:
+
+    *** Running /etc/my_init.d/00_regen_ssh_host_keys.sh...
+    *** Running /etc/my_init.d/30_presetup_nginx.sh...
+    *** Running /etc/rc.local...
+    *** Booting runit daemon...
+    *** Runit started as PID 8
+    Jul 24 15:51:10 articles-1992548935-5es1h syslog-ng[16]: syslog-ng starting up; version='3.5.6'
+    ok: run: /etc/service/nginx-log-forwarder: (pid 27) 0s
+    [ 2016-07-24 15:51:11.2773 28/7fd1cc210780 age/Wat/WatchdogMain.cpp:1291 ]: Starting Passenger watchdog...
+    [ 2016-07-24 15:51:11.3093 31/7fa1a64ca780 age/Cor/CoreMain.cpp:982 ]: Starting Passenger core...
+    [ 2016-07-24 15:51:11.3095 31/7fa1a64ca780 age/Cor/CoreMain.cpp:235 ]: Passenger core running in multi-application mode.
+    [ 2016-07-24 15:51:11.3174 31/7fa1a64ca780 age/Cor/CoreMain.cpp:732 ]: Passenger core online, PID 31
+    [ 2016-07-24 15:51:11.3415 36/7f6e30d73780 age/Ust/UstRouterMain.cpp:529 ]: Starting Passenger UstRouter...
+    [ 2016-07-24 15:51:11.3452 36/7f6e30d73780 age/Ust/UstRouterMain.cpp:342 ]: Passenger UstRouter online, PID 36
+
+So it seems the passenger process started with no errors.
+
+If we want to see our application in action, there's a very nice
+Minikube command that will takes us to our service.
+Run:
+
+    $ minikube service articles
+
+And that should take you to the cluster's IP address and the port that
+was assigned to our service. There's where our application lives.
+
+Let's find our service address and make a post request to our
+articles endpoint. First we need our Minikube VM IP:
+
+    $ minikube ip
+
+Output:
+
+    192.168.99.100
+
+And now the port the cluster assigned to our service:
+
+    $ kubectl describe service articles
+
+Output:
+
+    Name:                   articles
+    Namespace:              default
+    Labels:                 app=articles
+    Selector:               app=articles,tier=frontend
+    Type:                   NodePort
+    IP:                     10.0.0.111
+    Port:                   <unset> 80/TCP
+    NodePort:               <unset> 30097/TCP
+    Endpoints:              172.17.0.4:80
+    Session Affinity:       None
+    No events.
+
+So in my case I know that the service should be reachable at `http://192.168.99.100:30097`.
+In your case, you have to find your `NodePort` in the service description in order
+to find the exposed port.
+
+Let's make a curl POST request to the endpoint:
+
+    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://192.168.99.100:30097/articles
+
+Output:
+
+    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-24T16:03:35.179Z","updated_at":"2016-07-24T16:03:35.179Z"}%
+
+Great! We have our application fully running in our local Kubernetes cluster.
+The transition to a production cluster will not be hard at all. We just need
+to configure two more elements in our architecture, the Load Balancers and
+the Volume for persisting the data.
+
+There are also some minor changes we need to make to our
+application for running on production. For example we'll need a secret token for production
+and also configure our database.
+
+## Setting up AWS CLI
+
+In order to allow Kubernetes to run nodes for us in our AWS account, we need to
+first configure the AWS CLI tool with our credentials.
+For that have you can go to the AWS Console interface and navigate to the Security Credentials
+section. There you can generate and download a new set of keys. Make sure
+you put these in a safe place.
+
+You can get more info on how to get this credentials
+by visiting at http://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-set-up.html
+
+Now we can install the `awscli` tool by running (you need to have python and pip installed):
+
+    $ pip install awscli
+
+For creating a new configuration, run:
+
+    $ aws configure
+
+That command will ask you for the recently created credentials, for a default
+region (I use us-west-2) and for a preferred output format (JSON of course).
+
+## Switching the Kubernetes context
+
+You can setup different context for interacting with different clusters. Right
+now if we run:
+
+    $ kubectl config current-context
+
+We get:
+
+    minikube
+
+That's because when we installed Minikube, an specific context was created
+so we could interact with our local cluster by using `kubectl`.
+
+After we create our new AWS cluster, the Kubernetes installation script will create a new
+context for us, so we can switch back and forth between Minikube and the production cluster.
+
+The [getting started guide for AWS](http://kubernetes.io/docs/getting-started-guides/aws/)
+indicates that we can run a simple command for launching a cluster with some
+default settings. You have to keep in mind that these resources are not in the
+free-tier, so you may want to delete the entire cluster once you don't need it
+anymore. That way you only are going to pay accordingly to the amount of hours
+your instances were up.
+
+The documentation also indicates that:
+
+> By default, the script will provision a new VPC and a 4 node k8s cluster in us-west-2a (Oregon) with EC2 instances running on Debian.
+
+And then mentions that you can override this configuration by setting the following
+environmental variables in your system:
+
+    KUBE_AWS_ZONE
+    NUM_NODES
+    MASTER_SIZE
+    NODE_SIZE
+    AWS_S3_REGION
+    AWS_S3_BUCKET
+    INSTANCE_PREFIX
+
+In our case four nodes can be a little too much just for this simple API
+and the Database. Let's just use two small instances. In your profile file (.bashrc or .zshrc)
+add the following:
+
+    export NUM_NODES=2
+    export NODE_SIZE=t2.small
+
+And now source that file with (in my case):
+
+    $ source ~/.zshrc
+
+Now we can run the Kubernetes script that will launch a cluster
+in our account:
+
+    $ export KUBERNETES_PROVIDER=aws; curl -sS https://get.k8s.io | bash
+
+That can take a while. The script will download Kubernetes (which is kind of heavy)
+and then it'll launch the nodes and all the necessary elements for the cluster. It's
+going to create Security Groups, a VPC, an S3 Bucket and the EC2 instances between
+other stuff.
+
+When it's finished, at the end of the output you should see something like
+this:
+
+    Kubernetes master is running at https://52.41.37.108
+    Elasticsearch is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/elasticsearch-logging
+    Heapster is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/heapster
+    Kibana is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/kibana-logging
+    KubeDNS is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/kube-dns
+    kubernetes-dashboard is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/kubernetes-dashboard
+    Grafana is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/monitoring-grafana
+    InfluxDB is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/monitoring-influxdb
+
+    To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+
+    Kubernetes binaries at /Users/pacuna/Books/rails-on-kubernetes/articles/kubernetes/cluster/
+    You may want to add this directory to your PATH in $HOME/.profile
+
+There you can see all the different services that Kubernetes installed in our
+cluster and you'll also find your cluster's IP address. It also has added the configuration credentials
+for this cluster in the `~/.kube/config file`. There you should find a segment similar
+to this:
+
+
+      name: aws_kubernetes-basic-auth
+      user:
+        password: xxxxxxxxxxxxxxxx
+        username: admin
+
+Visit your cluster's IP address and use those credentials for login into
+the cluster.
+
+Once you're logged in, you'll first see a list of endpoints you can
+access from there. The dashboard is under the `/ui` namespace. So in my case
+I can visit `https://52.41.37.108/ui` and that'll take me to my production
+cluster's dashboard.
+
+Now we just need to prepare our templates for production.
+
+## Testing production settings with Minikube
+
+As I mentioned before, we have to make some changes to our application before
+shipping it to a production environment. We'll make these changes and then we'll try
+to deploy it with Minikube to see if it works. We still won't add persistence storage. We just
+want to check if the Rails production environment works correctly.
+
+First, we need to add a secret token for production environment.
+In the root of the application, run:
+
+    $ rake secret
+
+And copy that token to the `config/secrets.yml` file under the production section.
+
+Now open the `config/database.yml` file and add the following values under the
+production section:
+
+    production:
+      <<: *default
+      host: postgres
+      database: articles
+      username: articles
+      password: mysecretpassword
+
+And that's it. Now let's test this configuration with Minikube.
+
+First let's switch the kubectl context:
+
+    $ kubectl config use-context minikube
+
+Output:
+
+    switched to context "minikube".
+
+If you haven't deleted the deployments you should be able to see them with the command:
+
+    $ kubectl get deployments
+
+Output:
+
+    NAME       DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+    articles   1         1         1            1           5h
+    postgres   1         1         1            1           5h
+
+We are going to update the web application image so it can pick up our latests
+changes. After that, we have to push it to DockerHub and update our articles-deployment file
+and `setup-job` file.
+
+First, let's build our new version and push it DockerHub:
+
+    $ docker build -t username/articles:v_1 .
+    $ docker push username/articles:v_1
+
+Now we can update our deployment files. We only need to update
+the web application and the setup container since we are using the same database
+in the PostgreSQL container.
+
+We are going to drop the current development deployments and generate new ones
+for the production environment.
+For that, first let's copy all of our development templates
+to the production folder:
+
+    $ cp kube/development/* kube/production
+
+Now open the setup-job.yaml and replace the container version and also the
+passenger environmental variable that defines the Rails environment (replace the
+username with yours):
+
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: setup
+    spec:
+      template:
+        metadata:
+          name: setup
+        spec:
+          containers:
+          - name: setup
+            image: pacuna/articles:v_1
+            command: ["/bin/bash", "./setup.sh"]
+            env:
+            - name: PASSENGER_APP_ENV
+              value: development
+          restartPolicy: Never
+
+Now, let's do the same thing with the articles-deployment.yaml file (replace the username
+with yours):
+
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: articles
+      labels:
+        app: articles
+    spec:
+      ports:
+        - port: 80
+      selector:
+        app: articles
+        tier: frontend
+      type: NodePort
+    ---
+    apiVersion: extensions/v1beta1
+    kind: Deployment
+    metadata:
+      name: articles
+      labels:
+        app: articles
+    spec:
+      strategy:
+        type: RollingUpdate
+      template:
+        metadata:
+          labels:
+            app: articles
+            tier: frontend
+        spec:
+          containers:
+          - image: username/articles:v_1
+            name: articles
+            env:
+            - name: PASSENGER_APP_ENV
+              value: production
+            ports:
+            - containerPort: 80
+              name: articles
+            imagePullPolicy: Always
+
+There you can see that the only thing we changed was the `PASSENGER_APP_ENV` variable
+and the image version.
+
+Let's remove the current deployments and setup job:
+
+    $ kubectl delete -f kube/development/articles-deployment.yaml
+    $ kubectl delete -f kube/development/postgres-deployment.yaml
+    $ kubectl delete -f kube/development/setup-job.yaml
+
+Just a quick check to see if there are still pods running on the cluster:
+
+    $ kubectl get pods
+
+We get no output, so the cluster is empty. Let's run our
+production templates:
+
+    $ kubectl create -f kube/production/postgres-deployment.yaml
+
+For the database,
+
+    $ kubectl create -f kube/production/setup-job.yaml
+
+For the setup. Wait for a little bit so the setup finishes.
+Run the logs command to see if it's ready:
+
+    $ pods=$(kubectl get pods --selector=job-name=setup --output=jsonpath={.items..metadata.name})
+    $ kubectl logs $pods
+
+Output should be:
+
+    Waiting PostgreSQL to start on 5432...
+    PostgreSQL started
+    == 20160723153218 CreateArticles: migrating ===================================
+    -- create_table(:articles)
+       -> 0.0064s
+    == 20160723153218 CreateArticles: migrated (0.0066s) ==========================
+
+Now the migrations are ready, let's run our application:
+
+    $ kubectl create -f kube/production/articles-deployment.yaml
+
+Let's open the service with the Minikube shortcut:
+
+    $ minikube service articles
+
+You probably will see a blank page. Remember that on production Rails
+doesn't show the welcome page. Let's try to add an article. This time
+the assigned port is 32231. Remember you can get yours by running:
+
+    $ kubectl describe service articles
+
+Output:
+
+    Name:                   articles
+    Namespace:              default
+    Labels:                 app=articles
+    Selector:               app=articles,tier=frontend
+    Type:                   NodePort
+    IP:                     10.0.0.204
+    Port:                   <unset> 80/TCP
+    NodePort:               <unset> 32231/TCP
+    Endpoints:              172.17.0.4:80
+    Session Affinity:       None
+    No events.
+
+And you Minikube IP with `minikube ip`.
+
+    curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://192.168.99.100:32231/articles
+
+Output:
+
+    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-24T21:35:18.497Z","updated_at":"2016-07-24T21:35:18.497Z"}%
+
+Great! So our production setup is ready for our real production cluster.
+Testing your configuration files locally can be a really good practice and it can help you to find
+errors quickly, since you won't be running commands remotely.
+
+## Running the templates on production
+
+It's time to try out our templates on our production cluster. Let's first
+switch to the context the AWS script created for us (also in the `~/.kube/config` file):
+
+    $ kubectl config use-context aws_kubernetes
+
+Let's run a basic command to see if we're really connected to the cluster:
+
+    $ kubectl get services
+
+Output:
+
+    NAME         CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+    kubernetes   10.0.0.1     <none>        443/TCP   1h
+
+You can see that we only have the Kubernetes service running. Let run our first one:
+
+    $ kubectl create -f kube/production/postgres-deployment.yaml
+
+Output:
+
+    service "postgres" created
+    deployment "postgres" created
+
+Now the setup:
+
+    $ kubectl create -f kube/production/setup-job.yaml
+
+Check the logs after a few minutes to see if it's finished:
+
+    $ pods=$(kubectl get pods --selector=job-name=setup --output=jsonpath={.items..metadata.name})
+    $ kubectl logs $pods
+
+Output:
+
+    Waiting PostgreSQL to start on 5432...
+    PostgreSQL started
+    == 20160723153218 CreateArticles: migrating ===================================
+    -- create_table(:articles)
+       -> 0.0122s
+    == 20160723153218 CreateArticles: migrated (0.0123s) ==========================
+
+And finally for the web application we want to make an small change. Until now
+we have been using a `NodePort` type for the service. Well, now that we are on
+production, we can use a LoadBalancer, so we can have an static endpoint for that
+service. Open the 'kube/production/articles-deployment.yaml' file and change
+the service type to `LoadBalancer`:
+
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: articles
+      labels:
+        app: articles
+    spec:
+      ports:
+        - port: 80
+      selector:
+        app: articles
+        tier: frontend
+      type: LoadBalancer
+
+And leave the rest of the file the way it is.
+
+Now create the deployment:
+
+    $ kubectl create -f kube/production/articles-deployment.yaml
+
+If we inspect the service with:
+
+    $ kubectl describe service articles
+
+We'll see:
+
+    Name:                   articles
+    Namespace:              default
+    Labels:                 app=articles
+    Selector:               app=articles,tier=frontend
+    Type:                   LoadBalancer
+    IP:                     10.0.0.107
+    LoadBalancer Ingress:   a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com
+    Port:                   <unset> 80/TCP
+    NodePort:               <unset> 31810/TCP
+    Endpoints:              10.244.1.6:80
+    Session Affinity:       None
+    Events:
+      FirstSeen     LastSeen        Count   From                    SubobjectPath       Type            Reason                  Message
+      ---------     --------        -----   ----                    -------------       --------        ------                  -------
+      1m            1m              1       {service-controller }              Normal           CreatingLoadBalancer    Creating load balancer
+      1m            1m              1       {service-controller }              Normal           CreatedLoadBalancer     Created load balancer
+
+
+So as you can see, Kubernetes created an AWS Load Balancer for us and it's associated
+to this service. The endpoint is in the `LoadBalancer Ingress` field and my case
+corresponds to `a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com`.
+
+You'll have to wait for a few seconds for that endpoint to be alive.
+Once it's ready you can use the cURL post command to test it:
+
+    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com/articles
+
+Output:
+
+    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-24T21:56:47.998Z","updated_at":"2016-07-24T21:56:47.998Z"}%
+
+So we have successfully deployed our Rails API in a Kubernetes cluster. Now
+we are going to dig into more advanced topics such as Volumes for persisting data,
+healthy check endpoints and running deployment updates to our application.
+
+## Adding persistence
+
+A very useful integration between Kubernetes and AWS is that you can
+mount AWS Volumes in a very transparent way. We only need to create
+a volume through the AWS API and then add a new section in the deployment
+file for the service you want to persist. In our case we only need persistence
+for the PostgreSQL container. With that in place, if the container gets killed, the data
+will remain in the AWS Volume.
+
+Let's start by creating the volume. We can do this with a very simple command
+from the AWS CLI. The only detail here is that you need to use the same region
+your cluster lives in. If you didn't change the default one, then the region will be
+`us-west-2` and you can use something like `us-west-2a` for the availability zone.
+
+    $ aws ec2 create-volume --availability-zone us-west-2a --size 10 --volume-type gp2
+
+Output:
+
+    {
+        "AvailabilityZone": "us-west-2a",
+        "Encrypted": false,
+        "VolumeType": "gp2",
+        "VolumeId": "vol-24e48391",
+        "State": "creating",
+        "Iops": 100,
+        "SnapshotId": "",
+        "CreateTime": "2016-07-25T00:25:42.871Z",
+        "Size": 10
+    }
+
+The output gives us the `VolumeId` we're going to need later for our template so
+don't lose it.
+
+Now, let's open the deployment file for the PostgreSQL service and change the
+container specification so it looks like this:
+
+    spec:
+      containers:
+      - image: postgres:9.5.3
+        name: postgres
+        env:
+        - name: POSTGRES_PASSWORD
+          value: mysecretpassword
+        - name: POSTGRES_USER
+          value: articles
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        ports:
+        - containerPort: 5432
+          name: postgres
+        volumeMounts:
+          - name: postgres-persistent-storage
+            mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-persistent-storage
+          awsElasticBlockStore:
+            volumeID: vol-24e48391
+            fsType: ext4
+
+Replace the `volumeID` property with yours.
+
+In order to use the AWS Volume, we have to declare a new `PGDATA` for the database, a volume, and also
+mount that volume using the `volumeMounts` property. Then, by only using
+its `VolumeId`, we can access the volume and save our data.
+
+Let's delete our current deployment and create a new one for our database:
+
+
+    $ kubectl delete -f kube/production/postgres-deployment.yaml
+
+And let's run it again with the new changes:
+
+    $ kubectl create -f kube/production/postgres-deployment.yaml
+
+Output:
+
+    service "postgres" created
+    deployment "postgres" created
+
+We can describe the postgres replica set to see if it is in fact using the
+volume:
+
+    $ kubectl describe rs postgres
+
+Output:
+
+
+    Name:           postgres-16042964
+    Namespace:      default
+    Image(s):       postgres:9.5.3
+    Selector:       app=articles,pod-template-hash=16042964,tier=postgres
+    Labels:         app=articles
+                    pod-template-hash=16042964
+                    tier=postgres
+    Replicas:       1 current / 1 desired
+    Pods Status:    1 Running / 0 Waiting / 0 Succeeded / 0 Failed
+    Volumes:
+      postgres-persistent-storage:
+        Type:       AWSElasticBlockStore (a Persistent Disk resource in AWS)
+        VolumeID:   vol-24e48391
+        FSType:     ext4
+        Partition:  0
+        ReadOnly:   false
+    Events:
+      FirstSeen     LastSeen        Count   From                            SubobjectPath   Type            Reason                  Message
+      ---------     --------        -----   ----                            -------------   --------        ------                  -------
+      50s           50s             1       {replicaset-controller }                        Normal          SuccessfulCreate        Created pod: postgres-16042964-ylnhu
+
+You can see there the Volume section showing that the volume is correctly
+mounted into the container.
+
+We can also query the AWS API to see if can gives us some information of which instance
+is this volume attached to it:
+
+    $ aws ec2 describe-volumes --volume-ids vol-24e48391
+
+Output:
+
+    {
+        "Volumes": [
+            {
+                "AvailabilityZone": "us-west-2a",
+                "Attachments": [
+                    {
+                        "AttachTime": "2016-07-25T00:34:51.000Z",
+                        "InstanceId": "i-e3a26477",
+                        "VolumeId": "vol-24e48391",
+                        "State": "attached",
+                        "DeleteOnTermination": false,
+                        "Device": "/dev/xvdba"
+                    }
+                ],
+                "Encrypted": false,
+                "VolumeType": "gp2",
+                "VolumeId": "vol-24e48391",
+                "State": "in-use",
+                "Iops": 100,
+                "SnapshotId": "",
+                "CreateTime": "2016-07-25T00:25:42.871Z",
+                "Size": 10
+            }
+        ]
+    }
+
+There you can see that this volume is in fact attached to an instance. That's
+the instance that's holding the PostgreSQL container right now.
+
+If we want to do our smoke test one more time to see if the database is working correctly, we
+first have to rerun our setup Job. Remember that this container migrates
+the database and right now we are starting with a fresh PostgreSQL container that
+from now on will be able to persist its data.
+
+    $ kubectl delete -f kube/production/setup-job.yaml
+    $ kubectl create -f kube/production/setup-job.yaml
+
+As always let's check out the logs:
+
+    $ pods=$(kubectl get pods --selector=job-name=setup --output=jsonpath={.items..metadata.name})
+    $ kubectl logs $pods
+
+Output:
+
+    Waiting PostgreSQL to start on 5432...
+    PostgreSQL started
+    == 20160723153218 CreateArticles: migrating ===================================
+    -- create_table(:articles)
+       -> 0.0073s
+    == 20160723153218 CreateArticles: migrated (0.0074s) ==========================
+
+We are good to go. Now let's run that test:
+
+    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com/articles
+
+Output:
+
+    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-25T00:47:33.462Z","updated_at":"2016-07-25T00:47:33.462Z"}%
+
+Great! It's working. But, how can we know that we are actually persisting the data?
+Well, there's only one way to know. Let's delete our PostgreSQL deployment and run it
+again one more time. This time we should not even need to run the setup, because
+the tables are already there. Also we have one article there, so let's hope it's
+still there after a new deployment:
+
+    $ kubectl delete -f kube/production/postgres-deployment.yaml
+
+Output:
+
+    service "postgres" deleted
+    deployment "postgres" deleted
+
+Now let's recreate it:
+
+    $ kubectl create -f kube/production/postgres-deployment.yaml
+
+Output:
+
+    service "postgres" created
+    deployment "postgres" created
+
+Let's check if we have a valid response and our first article back:
+
+    $ curl http://a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com/articles
+
+Output:
+
+    [{"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-25T00:47:33.462Z","updated_at":"2016-07-25T00:47:33.462Z"}]%
+
+Awesome. This means we can kill the PostgreSQL container and the data
+won't be lost. You can apply this trick for persisting any type of data, for example
+for a search engine like Elasticsearch or another database like MySQL or MongoDB.
+
+## Updating the application
+
+One of the cool features of deployments in Kubernetes, is that you can
+run updates very easily on your application. We only need to create the new version
+of the image we want to deploy, and then update our deployment template.
+Then with just one command we can have a new version running.
+
+Let's try that now.
+
+We are going to add a new field to our articles table. This would require apply migrations, so we also
+going to have to run our setup container before the update. Don't worry, once we
+start to use jenkins for our deployments, everything will be automatic. But for now
+let just stay with the `kubectl` commands.
+
+Let's add the new field in our Rails application:
+
+    $ rails g migration AddSlugToArticles slug:string
+
+Let's also generate this slug automatically before the record
+gets saved in the articles#create action:
+
+      def create
+        @article = Article.new(article_params)
+        @article.slug = @article.title.parameterize
+
+        if @article.save
+          render json: @article, status: :created, location: @article
+        else
+          render json: @article.errors, status: :unprocessable_entity
+        end
+      end
+
+
+OK, I'm pretty sure that's going to work. Let's rebuild the image and push it
+to DockerHub.
+
+    $ docker build -t username/articles:v_2 .
+    $ docker push username/articles:v_2
+
+Update the image version in both the `setup-job` template and the
+articles-deployment template:
+
+    image: username/articles:v_2
+
+Now, let's rerun our setup Job so the migrations are applied:
+
+    $ kubectl delete -f kube/production/setup-job.yaml
+    $ kubectl create -f kube/production/setup-job.yaml
+
+Check the logs:
+
+    $ pods=$(kubectl get pods --selector=job-name=setup --output=jsonpath={.items..metadata.name})
+    $ echo $pods
+
+Output:
+
+    Waiting PostgreSQL to start on 5432...
+    PostgreSQL started
+    == 20160725010251 AddSlugToArticles: migrating ================================
+    -- add_column(:articles, :slug, :string)
+       -> 0.0048s
+    == 20160725010251 AddSlugToArticles: migrated (0.0050s) =======================
+
+And now for update our deployment we can run:
+
+    $ kubectl apply -f kube/production/articles-deployment.yaml
+
+Output:
+
+    service "articles" configured
+    deployment "articles" configured
+
+Wait for a second for the deployment to get updated and let's try to create a new
+article:
+
+    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my second article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com/articles
+
+Output:
+
+    {"id":2,"title":"my second article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-25T01:35:40.113Z","updated_at":"2016-07-25T01:35:40.113Z","slug":"my-second-article"}%
+
+The slug was generated correctly.
+
+We just made our first real deployment to our application. This new concept
+of deployments allows us to run updates to our software very easily. You only need
+to generate a new image, and update your current deployment by keeping it's metadata
+and the using the `apply command`. Then Kubernetes will update the pods, replica sets
+and make sure the service can route the requests to the correct pods.
+
+In the next section we'll see how to automate this entire process
+with a single operation. For that we'll need to install Jenkins with a couple
+of plugins.
+
+# Continuous Integration (CI)
+
+In this chapter I'll show how you can automate the entire deployment process
+using Jenkins. Our final goal is to be able to update our application
+by pushing to some Git branch.
+
+Out desired workflow can be summarize in:
+
+- A change is pushed to the application repository on GitHub
+- A service hook tells Jenkins a new version is available
+- Jenkins pulls the latests changes from GitHub
+- Jenkins builds a new Docker image with this new version
+- Jenkins pushes that image to your DockerHub account
+- Jenkins updates the deployment files with this new image version
+- Jenkins applies the changes by making calls to the cluster's API
+
+Those steps are basically what we have been doing manually until now, so it shouldn't
+be so hard to automate them. Although, a big difference is that our current machine is
+completely configured to interact with all those difference services. So
+the main difficulty with this pipeline will be to configure the Jenkins server
+so it can connect to all the different service accounts.
+
+Let's start by installing Jenkins on a new machine.
+
+## Installing Jenkins
+
+For Jenkins, we are going to run a new AWS EC2 instance. We'll be using the
+AWS CLI for creating all the different resources we need. You can use the AWS
+Dashboard, but I prefer this approach since you can document everything and
+reuse the commands after.
+
+### Creating a Key Pair
+
+First let's create a new Key Pair for accessing the server. We can create and save one
+by running:
+
+    $ aws ec2 create-key-pair --key-name Jenkins --query 'KeyMaterial' --output text > Jenkins.pem
+
+Then we need to add the permissions for that pem:
+
+    $ chmod 400 Jenkins.pem
+
+Save this key in a safe folder. I like to keep my key pairs in `~/.ssh/keys`.
+
+### Creating a Security Group
+
+Another required argument for launching an instance is the name of a security
+group with a set of rules. Let's create one now:
+
+    $ aws ec2 create-security-group --group-name jenkins-sg --description "Jenkins Security Group"
+
+Output:
+
+    {
+        "GroupId": "sg-XXXXXXXX"
+    }
+
+Now let's add some rules for this security group. We need one for SSH access by using
+our Key Pair, and a rule for HTTP access. Let's use 8080 for the latter:
+
+    $ aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp --port 22 --cidr 0.0.0.0/0
+    $ aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp --port 8080 --cidr 0.0.0.0/0
+
+You can also use your IP address for the CIDR instead of the anywhere wild card. That
+way you have more protection by only allowing people from your network to connect.
+
+### Launching the instance
+
+You can use whatever image you prefer, but keep in mind the Jenkins installation and
+general configuration may be different. I'll go with the `Amazon Linux AMI 2016.03.3 (HVM)`
+which ID is `ami-7172b611`. Let's use the following command for launching an instance
+with decent specs for a small Jenkins server:
+
+    $ aws ec2 run-instances --image-id ami-7172b611 --count 1 --instance-type t2.medium --key-name Jenkins --security-group-ids sg-XXXXXXXX --block-device-mappings '[{ "DeviceName": "/dev/xvda", "Ebs": { "VolumeSize": 20 } }]'
+
+You'll have a big output showing you all new instance information:
+
+    {
+        "OwnerId": "586421825777",
+        "ReservationId": "r-2ee2d980",
+        "Groups": [],
+        "Instances": [
+            {
+                "Monitoring": {
+                    "State": "disabled"
+                },
+                "PublicDnsName": "",
+                "RootDeviceType": "ebs",
+                "State": {
+                    "Code": 0,
+                    "Name": "pending"
+                },
+                "EbsOptimized": false,
+                "LaunchTime": "2016-07-27T01:57:19.000Z",
+                "PrivateIpAddress": "172.31.7.199",
+                "ProductCodes": [],
+                "VpcId": "vpc-b7f146d2",
+                "StateTransitionReason": "",
+                "InstanceId": "i-68177eb5",
+                "ImageId": "ami-7172b611",
+                "PrivateDnsName": "ip-172-31-7-199.us-west-2.compute.internal",
+                "KeyName": "Jenkins",
+                "SecurityGroups": [
+                    {
+                        "GroupName": "jenkins-sg",
+                        "GroupId": "sg-04267362"
+                    }
+                ],
+                (truncated)
+
+Now wait for a few minutes so the instance is ready. If you want, you can
+visit the AWS Console in order to check the instance status (or you can query
+the API if you prefer to).
+
+### Connecting to the instance
+
+First we'll need the Public DNS of this new server. Go to the AWS Console or run
+`aws ec2 describe-instances` to get it. Now connect to that hostname using `ec2-user`
+as the user, and passing the Jenkins PEM created previously:
+
+    $ ssh ec2-user@your-public-hostname.compute.amazonaws.com -i ~/.ssh/keys/Jenkins.pem
+
+Make sure you replace the Hostname and with yours and that the Keys path
+points to the folder where you saved the Jenkins keys.
+
+You should see the welcome message:
+
+    Are you sure you want to continue connecting (yes/no)? yes
+    Warning: Permanently added 'ec2-52-42-195-25.us-west-2.compute.amazonaws.com,52.42.195.25' (ECDSA) to the list of known hosts.
+
+           __|  __|_  )
+           _|  (     /   Amazon Linux AMI
+          ___|\___|___|
+
+    https://aws.amazon.com/amazon-linux-ami/2016.03-release-notes/
+    6 package(s) needed for security, out of 15 available
+    Run "sudo yum update" to apply all updates.
+
+We are in. Let's install Jenkins and some other stuff we need.
+
+### Installing dependencies
+
+Now that we are inside of our server, let's install some tools we'll need:
+
+    # sudo su
+    # yum update -y
+    # yum install -y git nginx git docker
+
+Let's also install Docker Compose with the instructions given in the
+[releases page](https://github.com/docker/compose/releases)
+
+    # curl -L https://github.com/docker/compose/releases/download/1.8.0/docker-compose-`uname -s`-`uname -m` > /usr/bin/docker-compose
+    # chmod +x /usr/bin/docker-compose
+
+We'll be using Docker Compose to run our test suite later.
+
+Now let's add the Jenkins repository and install it:
+
+    # wget -O /etc/yum.repos.d/jenkins.repo http://pkg.jenkins-ci.org/redhat/jenkins.repo
+    # rpm --import http://pkg.jenkins-ci.org/redhat/jenkins-ci.org.key
+    # yum install -y jenkins
+
+Before start the services let's add the Jenkins user to the Docker group:
+
+    # usermod -a -G docker jenkins
+
+Now we can start the Jenkins and Docker services and add them to the system startup and
+run some commands so we can login as the Jenkins user in case we need to:
+
+    # service jenkins start
+    # service docker start
+    # chkconfig jenkins on
+    # chkconfig docker on
+    # usermod -s /bin/bash jenkins
+    # usermod -m /var/lib/jenkins jenkins
+
+The last dependency we need is `kubectl`. Without `kubectl` we can't talk
+to our cluster from jenkins. Let's pull the Kubernetes binaries, and configure
+`kubectl` so it can run commands in our cluster:
+
+    # wget https://github.com/kubernetes/kubernetes/releases/download/v1.3.3/kubernetes.tar.gz
+    # tar -xf kubernetes.tar.gz
+    # chmod +x kubernetes/platforms/linux/amd64/kubectl
+    # cp kubernetes/platforms/linux/amd64/kubectl /usr/bin/
+
+Finally let's reboot the machine
+
+    # reboot 1
+
+Wait for a couple of minutes until the server is up again and then go to
+`http://your-hostname:8080`. For this version of Jenkins there's
+an installation wizard. Just follow the instructions and use all the recommended
+settings and create the admin user.
+
+Now that we have our Jenkins server and our admin user configured, let's install
+some plugins that'll be helpful for building our deploy pipeline.
+Go to `Manage Jenkins-> Manage Plugins -> Available` and search for the following
+plugins:
+
+- GitHub Authentication plugin
+- CloudBees Docker Build and Publish plugin
+- CloudBees Docker Hub/Registry Notification
+
+Select each one of those and click on `Install without restart`.
+
+## Configuring the Job
+
+Right now we have our Docker Image, but we'll also need a GitHub repository so
+we can trigger a build after every deploy. Go to GitHub and create a new
+repository and call it `articles`.
+
+Go to the Jenkins home and click on `create new jobs`. Use the name `Articles`
+and select `Freestyle project`, then click `OK`.
+
+In the `General` section, check GitHub project and add the URL of your
+repository. For example I'll use `https://github.com/pacuna/articles`.
+
+In the `Source Code Management` section select `Git` and once again
+use your repository URL. Click in the Add button in the credentials section to open
+the Jenkins credentials provider, use the `Username with password` kind, and
+add your Username and Password for GitHub. Make sure to select those
+credentials after, and that Jenkins doesn't throw any field errors. That's all
+for that section.
+If you have problems with Kind of authentication, you can also add your username
+and ssh private key to the Jenkins Credentials Provider and use the SSH URL of your
+repository.
+
+In the `Build Triggers` section, check on `Build when a change is pushed to GitHub`.
+
+In the `Build` section add a `Docker Build and Publish` step. Here, use your
+DockerHub repository name, for example `pacuna/articles`. In the tag field
+write `version_$BUILD_NUMBER`. That way we can tag our versions using the number
+of this build (that's a Jenkins environmental variable). Finally
+click on the `Add` button for `Registry Credentials` and create a set of
+credentials with your Username and Password for DockerHub and then select
+those credentials. There's no need to fill the `Docker registry URL` which
+by default will be pointing to DockerHub. Now, click on `Apply` and then `Save`.
+
+Right now we haven't added anything smart to this pipeline. If we build the project
+now, the Job will pull the master branch from our GitHub repository and then it'll
+build a new Docker image and push it to DockerHub. Let's test it so we can
+make sure all the credentials are working correctly. Go to the `Articles` project
+and on the side menu click on `Build Now`.
+You should see the Job running. If you click on the Job and go to `Console Output`
+you'll see all the plugins in actions pulling the project from GitHub, creating the
+image and then pushing it to DockerHub.
+
+## Configuring Jenkins for accessing the cluster
+
+We have `kubectl` installed but we haven't configured our cluster yet. The only
+thing we have to do is to copy our Kubernetes configuration file into a file
+in the Jenkins server. Let's do that now.
+First, ssh into your server and switch to the root user:
+
+    # sudo su
+
+Now switch to the jenkins user:
+
+    # sudo su - jenkins
+
+And create a `kubectl` configuration file:
+
+    # mkdir -p ~/.kube/
+    # touch ~/.kube/config
+
+Now we have to copy the AWS parts of the configuration file for our cluster.
+
+Open you `~/.kube/config` file and copy the AWS sections to the configuration file
+in the server. The parts you want copy should be these:
+
+    apiVersion: v1
+    clusters:
+    - cluster:
+        certificate-authority-data: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        server: https://XX.XX.XX.XX
+      name: aws_kubernetes
+    contexts:
+    - context:
+        cluster: aws_kubernetes
+        user: aws_kubernetes
+      name: aws_kubernetes
+    current-context: aws_kubernetes
+    kind: Config
+    preferences: {}
+    users:
+    - name: aws_kubernetes
+      user:
+        client-certificate-data: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        client-key-data: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        token: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    - name: aws_kubernetes-basic-auth
+      user:
+        password: XXXXXXXXXXXXXXXX
+        username: admin
+
+Basically we are removing all of the `minikube` parts and leaving the production
+cluster sections.
+
+Now if you run `kubectl get services` you should see the current services
+running in your cluster. That means Jenkins now can run works in our cluster.
+
+## Updating the cluster
+
+Now that we know Jenkins can use our cluster, let's add a build step to our
+Job. Go to your `Articles` project in Jenkins and click on `Configure`.
+
+At the end, add another `build step` but this time choose `Execute shell`.
+The script we're adding here should update and rerun our setup-job.yaml file
+and also update our application deployment. The deployment is very easy to update,
+we can just set the latest image we just created by using something like:
+
+    kubectl set image deployment/articles articles=pacuna/articles:version_$BUILD_NUMBER
+
+But with the setup Job is a little bit more complicated. There's
+not an easy way of updating a pod. We have to modify the template so it takes
+the latest image version, delete it from the cluster and the run it again.
+
+For that we can use `sed` for finding the image by using a Regex pattern and then
+replacing the file with the created image. Something like this should do the trick:
+
+    $ sed -e 's/pacuna\/articles:[a-z0-9_]*/pacuna\/articles:version_$BUILD_NUMBER/g' kube/production/setup-job.yaml \
+    > kube/production/setup-job.yaml.tmp && \
+    mv kube/production/setup-job.yaml.tmp kube/production/setup-job.yaml
+
+That command will find the string `pacuna/articles:version_SOMENUMBER` and replace
+it with `pacuna/articles:version_$BUILD_NUMBER` which is the recent built version.
+Then it'll replace the old file with the result of that replacing.
+
+Now, in the `Execute Shell` add the following:
+
+    # delete old setup Job
+    kubectl delete -f kube/production/setup-job.yaml
+
+    # replace old image version in the setup template file
+    sed -e "s/pacuna\/articles:[a-z0-9_]*/pacuna\/articles:version_${BUILD_NUMBER}/g" kube/production/setup-job.yaml \
+    > kube/production/setup-job.yaml.tmp && \
+    mv kube/production/setup-job.yaml.tmp kube/production/setup-job.yaml
+
+    # recreate the setup pod with the new articles image
+    kubectl create -f kube/production/setup-job.yaml
+
+    # update the deployment with the new articles image
+    kubectl set image deployment/articles articles=pacuna/articles:version_$BUILD_NUMBER
+
+And click on `Apply` and then `Save`.
+
+Now go and click on `Build Now` and if you click on the Job and see the console
+output, you'll see how the process is now completely automatic.
+
+## Running the test suite
+
+A big part in Continuous Integration is testing.
+With Jenkins we have the possibility to run our test before updating our application.
+
+We'll use docker-compose to run our test before we push the image to DockerHub.
+It doesn't have much sense to push a broken image. So this workflow will be:
+
+- We push bad code to GitHub and trigger a new deploy
+- Jenkins pulls these changes
+- Jenkins runs Docker Compose using this new code and a custom entrypoint
+- Jenkins waits for the status code of the test container
+- If status is different than 0, the deployment stops.
+
+First, let's configure our test database credentials in development.
+
+Add the following configuration to your `config/database.yml` file:
+
+    test:
+      <<: *default
+      host: postgres
+      username: articles
+      password: mysecretpassword
+      database: articles_test
+
+Remember we are running a PostgreSQL container and creating a non-default super user.
+In this case the user is `articles`.
+Now, let's create the test database in our development container:
+
+    $ docker-compose exec webapp /bin/bash -c "RAILS_ENV=test rake db:create"
+
+Output:
+
+    Created database 'articles_test'
+
+And now let's run the tests:
+
+    $ docker-compose exec webapp /bin/bash -c "RAILS_ENV=test rake"
+
+Output:
+
+    Run options: --seed 2060
+
+    # Running:
+
+    .....
+
+    Finished in 1.398970s, 3.5741 runs/s, 5.0037 assertions/s.
+
+    5 runs, 7 assertions, 0 failures, 0 errors, 0 skips
+
+Great! We have our tests passing locally. This was just to be sure that we have a test suite ready.
+
+Let's create a docker-compose file for the testing environment and a script for running a custom entrypoint
+(you can create these files in your root application folder):
+
+    $ touch docker-compose.test.yml
+    $ touch test.sh
+
+First, for the docker-compose.test.yml file add the following:
+
+
+    version: '2'
+    services:
+      webapp_test:
+        build: .
+        depends_on:
+          - postgres
+        environment:
+          - PASSENGER_APP_ENV=test
+        entrypoint: ./test.sh
+      postgres:
+        image: postgres:9.5.3
+        environment:
+          - POSTGRES_PASSWORD=mysecretpassword
+          - POSTGRES_USER=articles
+
+Pretty simple. We are running a container that builds our application
+from the latest code and a is connected to a database container. We use the `test.sh` as the new
+entrypoint, and we set the `PASSENGER_APP_ENV` to `test` so the commands
+in the entrypoint run on that environment.
+
+Now, for the `test.sh` file add the following:
+
+    #!/bin/sh
+
+
+    while ! nc -z postgres 5432; do
+      sleep 0.1
+    done
+
+    echo "PostgreSQL started"
+
+    echo "Creating test database"
+    rake db:create
+
+    rake
+
+Same as the setup container, we wait for the PostgreSQL container to be available.
+Then we create the test database and finally we run our tests with the `rake` command.
+
+Now, just for testing purposes, let's break one of our tests.
+
+Open the `test/controllers/articles_controller_test.rb` file and modify the status code
+of this test from 201 to 301:
+
+
+    test "should create article" do
+      assert_difference('Article.count') do
+        post articles_url, params: { article: { body: @article.body, title: @article.title } }, as: :json
+      end
+
+      assert_response 301
+    end
+
+We just want to test that Jenkins will actually stop the deployment when see
+that this test fails.
+
+Now push this code to your GitHub repository. There's no need to build a new
+image since Jenkins is now doing that work for us with every build.
+
+    $ git add .
+    $ git commit -m 'Add testing stuff'
+    $ git push origin master
+
+Now let's go to our `Articles` project's configuration in Jenkins.
+
+Add a new Build step selecting `Execute Shell` and then drag that step
+and put it before the `Docker Build and Publish` step. Remember we don't want to
+create and push the new image until we're sure the tests pass.
+
+Add the following to that step:
+
+    #!/bin/sh
+
+    # create test environment
+    docker-compose -f docker-compose.test.yml build
+    docker-compose -f docker-compose.test.yml up -d
+
+
+    # wait for the test container to finish and get its status code
+    EXIT_CODE=$(docker wait articles_webapp_test_1)
+
+    if [ $EXIT_CODE -eq 0 ]
+    then
+      docker logs articles_webapp_test_1
+      echo "All tests passed! :)"
+      docker-compose -f docker-compose.test.yml rm --force
+    else
+      docker logs articles_webapp_test_1
+      echo "Tests failed! :("
+      docker-compose -f docker-compose.test.yml rm --force
+      exit 1
+    fi
+
+This script will run Docker Compose and will use the `docker-compose.test.yml`
+file we created. It'll build the image using the current workspace, that contains
+the latest code pulled from GitHub.
+Then, with the help of the `docker wait` command, we can get the status code
+of the test container. This container runs the `rake` command, which will return
+0 if all the tests pass, and 1 otherwise.
+After we have that exit code, we print the logs for that container, so we can
+see the tests, print a friendly message and then remove the containers.
+On the contrary, if the tests don't pass, we delete the containers and stop
+the deployment. At this point, the `exit 1` command will stop the deploy and Jenkins
+will mark this release as failed. The image will not be pushed to DockerHub, which
+is what we want.
+
+Click on Apply and then save.
+Now let's test this pipeline by running `Build Now` on the sidebar.
+If you go to the console output after build the project, at the end you should see:
+
+    PostgreSQL started
+    Creating test database
+    Database 'articles' already exists
+    Database 'articles_test' already exists
+    Run options: --seed 21780
+
+    # Running:
+
+    ...F
+
+    Failure:
+    ArticlesControllerTest#test_should_create_article [/home/app/webapp/test/controllers/articles_controller_test.rb:18]:
+    Expected response to be a <301: Moved Permanently>, but was a <201: Created>.
+    Expected: 301
+      Actual: 201
+
+    bin/rails test test/controllers/articles_controller_test.rb:13
+
+    .
+
+    Finished in 0.495264s, 10.0956 runs/s, 14.1339 assertions/s.
+
+    5 runs, 7 assertions, 1 failures, 0 errors, 0 skips
+    Tests failed! :(
+    Removing articles_webapp_test_1 ...
+    Removing articles_webapp_test_1 ... done
+    Going to remove articles_webapp_test_1
+    Build step 'Execute shell' marked build as failure
+    Finished: FAILURE
+
+That's excellent! Remember we pushed a broken test to GitHub and that's
+why this deploy is failing.
+
+Now let's fix the test, push the code to GitHub and build the project once again.
+
+First fix the articles controller test so it checks for a 201 status code:
+
+
+    test "should create article" do
+      assert_difference('Article.count') do
+        post articles_url, params: { article: { body: @article.body, title: @article.title } }, as: :json
+      end
+
+      assert_response 201
+    end
+
+Now push those changes to the repository:
+
+    $ git add .
+    $ git commit -f 'Fix broken test'
+    $ git push origin master
+
+Now, go to your Jenkins projects and hit `Build Now` one more time.
+If you follow the console output you can see the tests passing:
+
+    Database 'articles' already exists
+    Database 'articles_test' already exists
+    Run options: --seed 54264
+
+    # Running:
+
+    .....
+
+    Finished in 0.454971s, 10.9897 runs/s, 15.3856 assertions/s.
+
+    5 runs, 7 assertions, 0 failures, 0 errors, 0 skips
+    All tests passed! :)
+
+Then the image is built and pushed to DockeHub:
+
+    ...
+    version_24: digest: sha256:a495edcdff27fb3234c6a27e2077ee3103e49c927f51e020cf814997c7906b2d size: 5116
+    [articles] $ docker push pacuna/articles:latest
+    The push refers to a repository [docker.io/pacuna/articles]
+    d42093693d3e: Preparing
+    4e7715ba227e: Preparing
+    4fff77f116fb: Preparing
+    bc3a60fe1ebb: Preparing
+    ...
+
+And finally the Kubernetes templates are updated:
+
+    job "setup" deleted
+    job "setup" created
+    deployment "articles" image updated
+    Finished: SUCCESS
+
+Awesome! Now you know how to add a build step that runs your test suite
+for avoiding deploys that may break your application.
+
+You may want to version all of the scripts that you use in your Jenkins steps.
+It's better to keep those scripts in your applications and only call the
+file instead of writing the bash code in Jenkins. But that's up to you. I'm only showing
+you some ideas that can help you to write your customized scripts.
+
+## Push to deploy
+
+Now that we have our deploy pipeline ready, it's very easy to add service hook
+so deploys are triggered via GitHub pushes.
+
+First, go to your Articles GitHub repository and navigate to `Settings` -> `Webhooks & services`.
+Click on `Add service` a search for the `Jenkins (GitHub Plugin)`
+After filling out your password add the URL for the Jenkins Hook:
+
+    http://your-jenkins-address:8080/github-webhook/
+
+And then click on `Add service`.
+That's it! Now every time you push a change to your GitHub repository, a new
+deploy will be triggered in the Jenkins Server.
