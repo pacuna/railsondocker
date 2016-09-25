@@ -698,6 +698,60 @@ we just created via cURL, so we are pretty sure our setup is working properly.
 > Tip: Use `docker-compose up -d` to run your environment in detached mode so you
 > can keep using that same terminal window to interact with your container.
 
+## Log issues
+
+A very important and complex topic with container is Logging.
+Docker logs work by inspecting the `STDOUT` connection. That's a problem for
+a Rails application, since all the logging is piped to a file in the log's directory.
+Luckily for us, we just need to change one line in our source code to send the logs
+to the `STDOUT` connection.
+
+Open the 'config/application.rb` file and add the following configuration:
+
+    config.logger = Logger.new(STDOUT)
+
+And that's it. Now for example, you should be able to see the application logs
+with the `docker-compose logs` tool.
+To apply this change, let's stop the `docker-compose up` command with `C-c` and
+rebuild the project:
+
+    $ # C-c
+
+Output:
+
+    Killing webapp ... done
+    Killing webapp_postgres_1 ... done
+
+    $ docker-compose build
+
+We are going to run `docker-compose up` in detached mode and follow the logs
+with the logs command:
+
+    $ docker-compose up -d && docker-compose logs -f
+
+Now, open a new tab and again run a command using curl:
+
+    $ curl -I localhost
+
+If you see the logs in the other window, you should see the Rails logger
+in action:
+
+    webapp           | App 443 stdout: I, [2016-09-25T22:23:21.861253 #443]  INFO -- : Started HEAD "/" for 172.18.0.1 at 2016-09-25 22:23:21 +0000
+    webapp           | App 443 stdout: D, [2016-09-25T22:23:22.110304 #443] DEBUG -- :   ActiveRecord::SchemaMigration Load (0.9ms)  SELECT "schema_migrations".* FROM "schema_migrations"
+    webapp           | App 443 stdout: I, [2016-09-25T22:23:22.157587 #443]  INFO -- : Processing by Rails::WelcomeController#index as */*
+    webapp           | App 443 stdout: I, [2016-09-25T22:23:22.157720 #443]  INFO -- :   Parameters: {"internal"=>true}
+    webapp           | App 443 stdout: I, [2016-09-25T22:23:22.178806 #443]  INFO -- :   Rendering /usr/local/rvm/gems/ruby-2.3.1/gems/railties-5.0.0.1/lib/rails/templates/rails/welcome/index.html.erb
+    webapp           | App 443 stdout: I, [2016-09-25T22:23:22.186551 #443]  INFO -- :   Rendered /usr/local/rvm/gems/ruby-2.3.1/gems/railties-5.0.0.1/lib/rails/templates/rails/welcome/index.html.erb (7.5ms)
+    webapp           | App 443 stdout: I, [2016-09-25T22:23:22.187048 #443]  INFO -- : Completed 200 OK in 29ms (Views: 25.2ms | ActiveRecord: 0.0ms)
+    webapp           | App 443 stdout:
+    webapp           | App 443 stdout:
+
+Having your logs propertly configured is important for production tools like
+Kubernetes and ECS, where inspecting things can be more difficult than on development.
+You don't want to go inside of your production containers and start to follow logs, mainly
+because you'll first would have to find the right node that's running that container, and that
+ruins the whole point of clustered applications.
+
 ## Pushing the app to DockerHub
 
 In order to be able to run our web application with Kubernetes, we need to push
