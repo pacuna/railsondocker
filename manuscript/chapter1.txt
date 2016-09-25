@@ -638,3 +638,201 @@ Great! Our application is up and running with no errors.
 In the next section we'll create a service that's going to keep our task alive
 24/7 and also create a Load Balancer so we can have a static address for our
 application.
+
+## Creating a service for our application
+
+Like I mentioned before, one of the cool featured of ECS Services, is that
+you can attach a Load Balancer to them. This will allow us to update our
+service and task definitions during deployments while keeping the address
+of the service.
+
+We can create a Load Balancer in the VPC with (replace with your cluster
+vpc id):
+
+
+    $ aws elb create-load-balancer --load-balancer-name articles-load-balancer --listeners "Protocol=HTTP,LoadBalancerPort=80,InstanceProtocol=HTTP,InstancePort=80" --subnets subnet-dd3ecef0 --security-groups sg-daf48fa0
+
+Output:
+
+    {
+        "DNSName": "articles-load-balancer-376855005.us-east-1.elb.amazonaws.com"
+        }
+    }
+
+Now we can use that load balancer when creating the service.
+
+TODO: show how to get the subnet ids
+
+First, let's stop the tast that's running our application. For that, we'll need
+its identifier:
+
+    $ aws ecs list-tasks --cluster my-cluster
+
+Output:
+
+    {
+        "taskArns": [
+            "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82"
+        ]
+    }
+
+And now we can run the stop-task command:
+
+    $ aws ecs stop-task --task arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82 --cluster my-cluster
+
+Output:
+
+    {
+        "task": {
+            "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+            "overrides": {
+                "containerOverrides": [
+                    {
+                        "name": "articles"
+                    }
+                ]
+            },
+            "lastStatus": "RUNNING",
+            "containerInstanceArn": "arn:aws:ecs:us-east-1:586421825777:container-instance/02a39ed9-9364-4449-969d-e19762013a24",
+            "createdAt": 1474745245.239,
+            "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/my-cluster",
+            "startedAt": 1474745246.911,
+            "desiredStatus": "STOPPED",
+            "stoppedReason": "Task stopped by user",
+            "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
+            "containers": [
+                {
+                    "containerArn": "arn:aws:ecs:us-east-1:586421825777:container/3fb816c9-a9b2-400e-a104-4bb99e20ad84",
+                    "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+                    "lastStatus": "RUNNING",
+                    "name": "articles",
+                    "networkBindings": [
+                        {
+                            "protocol": "tcp",
+                            "bindIP": "0.0.0.0",
+                            "containerPort": 80,
+                            "hostPort": 80
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+
+Now if we list the tasks again, we shouldn't see anything:
+
+    $ aws ecs list-tasks --cluster my-cluster
+
+Output:
+
+    {
+        "taskArns": []
+    }
+
+Let's create a file for holding our service:
+
+    $ mkdir ecs/services
+
+And now let's jump into that folder and use the command to generate a service skeleton:
+
+    $ cd ecs/services
+    $ aws ecs create-service --generate-cli-skeleton > articles-service.json
+
+Now open the generated file and replace the values with the following:
+
+
+    {
+        "cluster": "my-cluster",
+        "serviceName": "articles-service",
+        "taskDefinition": "articles:5",
+        "loadBalancers": [
+            {
+                "loadBalancerName": "articles-load-balancer",
+                "containerName": "articles",
+                "containerPort": 80
+            }
+        ],
+        "desiredCount": 2,
+        "role": "ecsServiceRole"
+    }
+
+And then create the service with:
+
+    $ aws ecs create-service --cli-input-json file://articles-service.json
+
+Output:
+
+    {
+        "service": {
+            "status": "ACTIVE",
+            "taskDefinition": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
+            "pendingCount": 0,
+            "loadBalancers": [
+                {
+                    "containerName": "articles",
+                    "containerPort": 80,
+                    "loadBalancerName": "articles-load-balancer"
+                }
+      {
+            ],
+            "roleArn": "arn:aws:iam::586421825777:role/ecsServiceRole",
+            "createdAt": 1474773934.937,
+            "desiredCount": 2,
+            "serviceName": "articles-service",
+            "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/my-cluster",
+            "serviceArn": "arn:aws:ecs:us-east-1:586421825777:service/articles-service",
+            "deploymentConfiguration": {
+                "maximumPercent": 200,
+                "minimumHealthyPercent": 100
+            },
+            "deployments": [
+                {
+                    "status": "PRIMARY",
+                    "pendingCount": 0,
+                    "createdAt": 1474773934.937,
+                    "desiredCount": 2,
+                    "taskDefinition": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
+                    "updatedAt": 1474773934.937,
+                    "id": "ecs-svc/9223370562080840870",
+                    "runningCount": 0
+                }
+            ],
+            "events": [],
+            "runningCount": 0
+        }
+
+Now we can try to hit the ELB url to see if it's actually routing requests to
+our application. Remember that the got the DNS when we called the create load balancer
+command:
+
+
+    $ curl -I articles-load-balancer-376855005.us-east-1.elb.amazonaws.com/articles
+
+    HTTP/1.1 200 OK
+    Cache-Control: max-age=0, private, must-revalidate
+    Content-Type: application/json; charset=utf-8
+    Date: Sun, 25 Sep 2016 03:29:21 GMT
+    ETag: W/"4f53cda18c2baa0c0354bb5f9a3ecbe5"
+    Server: nginx/1.10.1 + Phusion Passenger 5.0.29
+    Status: 200 OK
+    X-Content-Type-Options: nosniff
+    X-Frame-Options: SAMEORIGIN
+    X-Powered-By: Phusion Passenger 5.0.29
+    X-Request-Id: 0b021b01-2df5-4a33-a474-6d1e25691f2f
+    X-Runtime: 0.002538
+    X-XSS-Protection: 1; mode=block
+    Connection: keep-alive
+
+Great! In case you didn't notice, we declare that we wanted two tasks as our
+desired count. The cool thing about the ELB is that is going to balance the load
+between these number of tasks. This wouldn't be able to do without a service.
+
+Let's try to create an article to see if everything is working correctly:
+
+    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"the title","body":"The body"}' http://articles-load-balancer-376855005.us-east-1.elb.amazonaws.com/articles
+
+Output:
+
+    {"id":1,"title":"the title","body":"The body","created_at":"2016-09-25T03:35:27.689Z","updated_at":"2016-09-25T03:35:27.689Z","slug":"the-title"}%
+
+Cool! So we have our DB and our Load Balancer working correctly.
