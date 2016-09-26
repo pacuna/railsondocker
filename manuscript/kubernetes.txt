@@ -5,111 +5,105 @@
 In order to keep a better application structure, let's add
 some folders for the Kubernetes configuration.
 
-We'll use a `kube` folder, and two subfolders, `development` and `production`.
-As you can imagine, the production templates are going to be a little different
-than the development ones, since some elements cannot be replicated on development
-such as Load Balancers and AWS data storages. Don't confuse this development with
-your development environment. Every time we talk about Kubernetes on development
-environment, we refer to test our cluster locally, not to actually the development
-environment that we use daily for writing our code. For that we still have to use
-tools like Docker Compose is we want to use containers.
+We'll use a `kube` folder, and inside subfolders for every Kubernetes type we need.
+For now, let's create a deployments and a jobs subfolder:
 
     $ mkdir -p kube
-    $ mkdir -p kube/development
-    $ mkdir -p kube/production
+    $ mkdir -p kube/deployments
+    $ mkdir -p kube/jobs
 
-## Deployment templates
+## Templates
 
 ### PostgreSQL
 
-Let's add a development file for the PostgreSQL deployment:
+Let's create a deployment file for the PostgreSQL service:
 
-    $ touch kube/development/postgres-deployment.yaml
+    $ touch kube/deployments/postgres-deployment.yaml
 
 And add the following:
 
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: postgres
-      labels:
-        app: articles
-    spec:
-      ports:
-        - port: 5432
-      selector:
-        app: articles
-        tier: postgres
-      clusterIP: None
-    ---
-    apiVersion: extensions/v1beta1
-    kind: Deployment
-    metadata:
-      name: postgres
-      labels:
-        app: articles
-    spec:
-      strategy:
-        type: RollingUpdate
-      template:
-        metadata:
-          labels:
-            app: articles
-            tier: postgres
-        spec:
-          containers:
-          - image: postgres:9.5.3
-            name: postgres
-            env:
-            - name: POSTGRES_PASSWORD
-              value: mysecretpassword
-            - name: POSTGRES_USER
-              value: articles
-            ports:
-            - containerPort: 5432
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: postgres
+        labels:
+          app: webapp
+      spec:
+        ports:
+          - port: 5432
+        selector:
+          app: webapp
+          tier: postgres
+        clusterIP: None
+      ---
+      apiVersion: extensions/v1beta1
+      kind: Deployment
+      metadata:
+        name: postgres
+        labels:
+          app: webapp
+      spec:
+        template:
+          metadata:
+            labels:
+              app: webapp
+              tier: postgres
+          spec:
+            containers:
+            - image: postgres:9.5.3
               name: postgres
+              env:
+              - name: POSTGRES_PASSWORD
+                value: mysecretpassword
+              - name: POSTGRES_USER
+                value: webapp
+              - name: POSTGRES_DB
+                value: webapp_development
+              ports:
+              - containerPort: 5432
+                name: postgres
 
-
-That's kind of a long YAML file (and it'll get bigger), but keep in mind
+That's kind of a long YAML file (and it'll get longer), but keep in mind
 that the file contains all the necessary elements that we need for the PostgreSQL
-deployments. It'll generate the Pod, the replica set that's going to manage the pod
+deployment. It'll generate the Pod, the replica set that's going to manage the pod
 and also the service so our web application and the setup container can reach
-it by using the same alias we used in development.
+it by using the same alias we used in development with Docker Compose.
 
 Let's go section by section:
 
     apiVersion: v1
     kind: Service
     metadata:
-      name: postgres
-      labels:
-        app: articles
+    name: postgres
+    labels:
+      app: webapp
     spec:
-      ports:
-        - port: 5432
-      selector:
-        app: articles
-        tier: postgres
-      clusterIP: None
+    ports:
+      - port: 5432
+    selector:
+      app: webapp
+      tier: postgres
+    clusterIP: None
 
 The first section of the file is the service declaration. In the deployment file
 we can declare more than one kind, and we separate them by using `---`.
 
 This service has a name `postgres`, meaning that we are going to be able to use
-that alias for communicating with it from our cluster. It also has a label
-that can be useful for doing filtering.
+that alias for communicating with it from our cluster. Kubernetes uses its own
+dns mechanism to be able to communicate services running on different nodes by using their
+aliases.
+We are also defining a label that can be useful for doing filtering.
 
 The spec section will tell the service where it should be routing
 the requests. In this case is going to match two selectors: `app` and `tier`
-with the values articles, which is the main context, and the tier which
-is postgres.
-
+with the values `webapp`, which is the main context, and the specific tier which
+is `postgres`.
 The `tier` is the selector that's going to differentiate the
 web application containers and the PostgreSQL container, since both are going
-to have an `app` selector with the value `articles` but a different `tier` selector
+to have an `app` selector with the value `webapp` but a different `tier` selector
 value. The purpose of the `app` selector is that you are to able to have several
-different applications running in cluster, and for example if you have another application
-named `users` for example, you can have the same `postgres` tier but a different `app`
+different applications running in the cluster, and for example if you have another application
+named `users`, you can have the same `postgres` tier but a different `app`
 label.
 
 We are also indicating the communication port should be 5432, which is the standard
@@ -122,14 +116,12 @@ you won't be able to touch this endpoint from outside the cluster.
     metadata:
       name: postgres
       labels:
-        app: articles
+        app: webapp
     spec:
-      strategy:
-        type: RollingUpdate
       template:
         metadata:
           labels:
-            app: articles
+            app: webapp
             tier: postgres
         spec:
           containers:
@@ -139,29 +131,31 @@ you won't be able to touch this endpoint from outside the cluster.
             - name: POSTGRES_PASSWORD
               value: mysecretpassword
             - name: POSTGRES_USER
-              value: articles
+              value: webapp
+            - name: POSTGRES_DB
+              value: webapp_development
             ports:
             - containerPort: 5432
               name: postgres
 
-The second section corresponds to the deployment it self.
+The second section corresponds to the deployment itself.
 
 We start by adding the same metadata we used for the service and then the
-specifications. We then define our strategy as `RollingUpdate`. This means
-that old Pods won't be killed before new ones are created. Instead
-they will be replaced in a rolling-update fashion. So you're going to have
-several copies of your pods running simultaneously.
-
-Then, for the template, we have to specify the match we need for this
+specifications.
+Then, for the template of the specification, we have to specify the match we need for this
 replica set and pods. As I mentioned before, the service will be looking
 for two labels: `app` and `tier` and it must match this metadata.
 
-Finally we define the specifications for the containers. This is pretty
+Finally we define the specification for the containers. This is pretty
 similar to the Docker Compose file structure and it contains the image, the
 environmental variables, the port and the container name.
+Notice that we're still using the variables for development. Later we'll switch this
+to production once we configured our application to run on that environment.
 
 And that's it for the PostgreSQL deployment for now. Later we'll add another
-section for the persistence storage.
+section for the persistence storage. We are skipping that for now because
+we first want to test this templates with a local tool, and the way you manage
+volumes with Kubernetes, doesn't allow us to test that locally.
 
 ### Setup Container
 
@@ -174,9 +168,11 @@ after the container finishes.
 
 The syntax for writing a Job template is quite simple. Let's create the file:
 
-    $ touch kube/development/setup-job.yaml
+    $ touch kube/jobs/setup-job.yaml
 
-And add the following:
+And add the following configuration, replacing the image with the one
+you pushed to DockerHub. Remember we are using the latest commit hash for
+tagging:
 
     apiVersion: batch/v1
     kind: Job
@@ -189,7 +185,7 @@ And add the following:
         spec:
           containers:
           - name: setup
-            image: pacuna/articles:v_0
+            image: pacuna/webapp:57514be
             command: ["/bin/bash", "./setup.sh"]
             env:
             - name: PASSENGER_APP_ENV
@@ -200,81 +196,81 @@ This pod has a very simple definition. It has a `restartPolicy` of never, so
 once it finishes it doesn't get restarted by the scheduler.
 
 The `containers` section contains the specs for the image that we just pushed
-to DockerHub (remember to change with yours).
+to DockerHub.
 
-Similar to what we did with Docker Compose, we set the necessary environmental variables, add
+Similar to what we did with Docker Compose, we set the necessary environmental variables,
 and a command instruction for running our custom entrypoint.
-
 As you can see, in Kubernetes there's not an `entrypoint` instruction but a `command` key
-that behaves in a similar fashion.
+that behaves in a similar fashion. Remember that our entrypoint for this container should
+be our setup.sh file that runs the migrations once the PostgreSQL container is ready.
 
 ### Web Application
 
 This deployment file is also going to have two kinds, a service and a deployment.
 
-    $ touch kube/development/articles-deployment.yaml
+    $ touch kube/deployments/webapp-deployment.yaml
 
 And add the following template:
 
     apiVersion: v1
     kind: Service
     metadata:
-      name: articles
+      name: webapp
       labels:
-        app: articles
+        app: webapp
     spec:
       ports:
         - port: 80
       selector:
-        app: articles
+        app: webapp
         tier: frontend
       type: NodePort
     ---
     apiVersion: extensions/v1beta1
     kind: Deployment
     metadata:
-      name: articles
+      name: webapp
       labels:
-        app: articles
+        app: webapp
     spec:
-      strategy:
-        type: RollingUpdate
+      replicas: 3
       template:
         metadata:
           labels:
-            app: articles
+            app: webapp
             tier: frontend
         spec:
           containers:
-          - image: username/articles:v_0
-            name: articles
+          - image: pacuna/webapp:57514be
+            name: webapp
             env:
             - name: PASSENGER_APP_ENV
               value: development
             ports:
             - containerPort: 80
-              name: articles
+              name: webapp
             imagePullPolicy: Always
 
-Let's go by section. First, the service definition is pretty similar to the one
+Again, let's go by part. First, the service definition is pretty similar to the one
 we have for the PostgreSQL deployment. The difference here is we are using a new set of
 selectors. The PostgreSQL uses a tier named `postgres`, and this one uses a tier named
 `frontend`. This way the service can route the requests to the correct replica set
 that has those same labels.
 
-Another difference is we are using a `type` for the service. On development we use
+Another difference is we are using a `type` for the service. Locally we can use
 the type `NodePort`. Which is a way of exposing a port for accessing the application
 from outside the cluster. On production we'll use a `LoadBalancer` type, type that
 we don't have for our local cluster. The difference between these two types is that
 the `NodePort` will expose a random port from the cluster for accessing the application.
-This port can't change between deploys. On the other side, the `LoadBalancer` type, will
+This port can change between deploys. On the other side, the `LoadBalancer` type, will
 use the provider's api (AWS or GCE) for creating a real Load Balancer in your account.
 And this Load Balancer will have a static DNS we can use for connecting to the service, and also
 will balance the requests between all the pods replicas we declare in the specs.
 
 Then we have the deployment section. This section contains the metadata with
-the respective name and label and the specification section. We are using a `RollingUpdate`
-strategy for the new deployments. Then we declare the labels so the service
+the respective name and label and the specification section. We are indicating we want to have
+3 pods for this deployment. That means there are going to be 3 containers running our application, and
+this service will be routing the traffic to those three pods. We then declare the labels so the service
 can locale the respective replica set.
 
 Finally we have the container specifications. We are using the image we pushed to
@@ -284,12 +280,12 @@ in order to always force the pull.
 
 Your final structure for the deployment files should be something like:
 
-    ├── kube
-    │   ├── development
-    │   │   ├── articles-deployment.yaml
-    │   │   ├── postgres-deployment.yaml
-    │   │   └── setup-job.yaml
-    │   └── production
+    kube
+    ├── deployments
+    │   ├── postgres-deployment.yaml
+    │   └── webapp-deployment.yaml
+    └── jobs
+        └── setup-job.yaml
 
 Now it's time to try those templates on a local cluster. For that we are going
 to use a very handy tool called Minikube.
@@ -299,11 +295,13 @@ to use a very handy tool called Minikube.
 According to the [official Minikube repository](https://github.com/kubernetes/minikube):
 
 > Minikube is a tool that makes it easy to run Kubernetes locally.
+> Minikube runs a single-node Kubernetes cluster inside a VM on your
+> laptop for users looking to try out Kubernetes or develop with it day-to-day.
 
 Before Minikube, running Kubernetes locally was pretty hard. You had some alternatives
 like running a cluster using Vagrant or just use plain Docker.
 Minikube gives you a much better experience in my opinion. Most of the setup is
-pretty transparent for us and as with all the Kubernetes tooling, it just works.
+pretty transparent for the user and like almost all of the Kubernetes tooling, it just works.
 
 We'll use Minikube in order to test our Kubernetes configuration files
 without having to launch test servers in the cloud. That's a very big step
@@ -317,8 +315,10 @@ shipping it to production. You still need to use Docker and Docker Compose or an
 other tool you use daily to work on your code.
 
 You can find the installation instructions for Minikube in the [official repository](https://github.com/kubernetes/minikube).
+Check the releases page to find the instructions related to your operating system. 
+In general, the installation should be pretty straightforward.
 
-The version I have on my machine is 0.6.0 and I'll be using the `xhyve` driver.
+The version I have on my machine is v0.10.0 and I'll be using the `xhyve` driver.
 You can use whatever is best for your platform.
 
 You also need the `kubectl` CLI tool for launching the services and
@@ -327,15 +327,14 @@ This CLI tool communicates with our cluster in order to run containers and
 services. It has a pretty solid integration with cloud services like Amazon AWS
 and Google's GCE. This tool will be our main channel of interaction with our cluster.
 
-This is the information for the version I have:
+This is the information for the version I have for the client:
 
-    Client Version: version.Info{Major:"1", Minor:"4+", GitVersion:"v1.4.0-alpha.1", GitCommit:"897d2770950db06d4c6a51f10b4fcf6d389f9736", GitTreeState:"clean", BuildDate:"2016-07-11T20:14:46Z", GoVersion:"go1.6.2", Compiler:"gc", Platform:"darwin/amd64"}
-    Server Version: version.Info{Major:"1", Minor:"3", GitVersion:"v1.3.0", GitCommit:"283137936a498aed572ee22af6774b6fb6e9fd94", GitTreeState:"clean", BuildDate:"1970-01-01T00:00:00Z", GoVersion:"go1.6.1", Compiler:"gc", Platform:"linux/amd64"}
+    Client Version: version.Info{Major:"1", Minor:"3", GitVersion:"v1.3.7+a2cba278", GitCommit:"a2cba278cba1f6881bb0a7704d9cac6fca6ed435", GitTreeState:"not a git tree", BuildDate:"2016-09-23T01:55:57Z", GoVersion:"go1.7.1", Compiler:"gc", Platform:"darwin/amd64"}
 
 Make sure you're using that version or a newer one.
 
 Once you have Minikube and kubectl ready to go, you can create your local
-cluster by running:
+cluster by running (add the --vm-driver flag if you want to use an specific VM provider):
 
     $ minikube start
 
@@ -343,7 +342,7 @@ That can take a few minutes the first time. Once it finishes, you should see an 
 similar to this:
 
     Starting local Kubernetes cluster...
-    Kubernetes is available at https://192.168.99.100:8443.
+    Kubernetes is available at https://192.168.64.4:8443.
     Kubectl is now configured to use the cluster.
 
 Meaning your local Kubernetes cluster is running.
@@ -375,7 +374,7 @@ Let's start with the PostgreSQL deployment template.
 
 Run the following command from the root of the application:
 
-    $ kubectl create -f kube/development/postgres-deployment.yaml
+    $ kubectl create -f kube/deployments/postgres-deployment.yaml
 
 Output:
 
@@ -388,23 +387,24 @@ We can describe our new deployment with:
 
 Output:
 
-    Name:                   postgres
-    Namespace:              default
-    CreationTimestamp:      Sun, 24 Jul 2016 11:32:00 -0400
-    Labels:                 app=articles
-    Selector:               app=articles,tier=postgres
-    Replicas:               1 updated | 1 total | 0 available | 1 unavailable
-    StrategyType:           RollingUpdate
-    MinReadySeconds:        0
-    RollingUpdateStrategy:  1 max unavailable, 1 max surge
-    OldReplicaSets:         <none>
-    NewReplicaSet:          postgres-524157917 (1/1 replicas created)
+    Name:			postgres
+    Namespace:		default
+    CreationTimestamp:	Sun, 25 Sep 2016 22:24:48 -0300
+    Labels:			app=webapp
+    Selector:		app=webapp,tier=postgres
+    Replicas:		1 updated | 1 total | 0 available | 1 unavailable
+    StrategyType:		RollingUpdate
+    MinReadySeconds:	0
+    RollingUpdateStrategy:	1 max unavailable, 1 max surge
+    OldReplicaSets:		<none>
+    NewReplicaSet:		postgres-2368021586 (1/1 replicas created)
     Events:
-      FirstSeen     LastSeen        Count   From                            SubobjectPath       Type            Reason                  Message
-      ---------     --------        -----   ----                            -------------       --------        ------                  -------
-      33s           33s             1       {deployment-controller }           Normal           ScalingReplicaSet       Scaled up replica set postgres-524157917 to 1
+      FirstSeen	LastSeen	Count	From				SubobjectPath	Type		Reason			Message
+      ---------	--------	-----	----				-------------	--------	------			-------
+      20s		20s		1	{deployment-controller }			Normal		ScalingReplicaSet	Scaled up replica set postgres-2368021586 to 1
 
-If you run `minikube dashboard` again, you should see the new workloads.
+If you run `minikube dashboard` again, you should see the new workloads under
+the correspondent sections.
 
 This deployment generates a service, a replica set and a pod.
 If you want to see the events for the Pod, you can run:
@@ -412,12 +412,24 @@ If you want to see the events for the Pod, you can run:
     $ kubectl describe pod postgres
 
 And you'll have a big output that describes the pod specifications and also
-the events in case something goes wrong.
+the events in case something goes wrong. This is an output for the events section:
+
+    Events:
+      FirstSeen	LastSeen	Count	From			SubobjectPath			Type		Reason		Message
+      ---------	--------	-----	----			-------------			--------	------		-------
+      1m		1m		1	{default-scheduler }					Normal		Scheduled	Successfully assigned postgres-2368021586-mcuhg to minikube
+      1m		1m		1	{kubelet minikube}	spec.containers{postgres}	Normal		Pulling		pulling image "postgres:9.5.3"
+      1m		1m		1	{kubelet minikube}	spec.containers{postgres}	Normal		Pulled		Successfully pulled image "postgres:9.5.3"
+      1m		1m		1	{kubelet minikube}	spec.containers{postgres}	Normal		Created		Created container with docker id fbce59835854
+      1m		1m		1	{kubelet minikube}	spec.containers{postgres}	Normal		Started		Started container with docker id fbce59835854
+
+As you can see, all the events are pretty standard. The image is pulled from DockerHub
+and the container is launched using the specification we gave.
 
 Now that we have our database running, let's launch the setup job that's
 going to run the migrations for the application:
 
-    $ kubectl create -f kube/development/setup-job.yaml
+    $ kubectl create -f kube/jobs/setup-job.yaml
 
 Output:
 
@@ -427,16 +439,16 @@ This can take a few minutes the first time, since it has to pull the entire
 image from DockerHub.
 
 To see what's happening with our Job, we can filter the Job's pods by the Job's name
-and the run the logs command for that pod.
+and then run the logs command for that pod.
 
 First let's get the name of the pod. The name we used for the job was `setup`:
-
 
     $ pods=$(kubectl get pods --selector=job-name=setup --output=jsonpath={.items..metadata.name})
 
 Now if you run `echo $pods` you'll get the name of the associated pod.
 
-Let's see the logs:
+Let's see the logs (if you see an error with ContainerCreating status, wait for a few
+more minutes):
 
     $ kubectl logs $pods
 
@@ -444,31 +456,63 @@ Output:
 
     Waiting PostgreSQL to start on 5432...
     PostgreSQL started
-    == 20160723153218 CreateArticles: migrating ===================================
+    D, [2016-09-26T01:30:27.035631 #6] DEBUG -- :    (96.0ms)  CREATE TABLE "schema_migrations" ("version" character varying PRIMARY KEY)
+    D, [2016-09-26T01:30:27.120916 #6] DEBUG -- :    (81.5ms)  CREATE TABLE "ar_internal_metadata" ("key" character varying PRIMARY KEY, "value" character varying, "created_at" timestamp NOT NULL, "updated_at" timestamp NOT NULL)
+    D, [2016-09-26T01:30:27.122315 #6] DEBUG -- :    (0.3ms)  SELECT pg_try_advisory_lock(1932410105524239390);
+    D, [2016-09-26T01:30:27.130223 #6] DEBUG -- :   ActiveRecord::SchemaMigration Load (0.4ms)  SELECT "schema_migrations".* FROM "schema_migrations"
+    I, [2016-09-26T01:30:27.143467 #6]  INFO -- : Migrating to CreateArticles (20160925220117)
+    D, [2016-09-26T01:30:27.145113 #6] DEBUG -- :    (0.2ms)  BEGIN
+    == 20160925220117 CreateArticles: migrating ===================================
     -- create_table(:articles)
-       -> 0.0062s
-    == 20160723153218 CreateArticles: migrated (0.0065s) ==========================
+    D, [2016-09-26T01:30:27.200486 #6] DEBUG -- :    (54.0ms)  CREATE TABLE "articles" ("id" serial primary key, "title" character varying, "body" text, "created_at" timestamp NOT NULL, "updated_at" timestamp NOT NULL)
+       -> 0.0554s
+    == 20160925220117 CreateArticles: migrated (0.0556s) ==========================
 
-    == 20160725010251 AddSlugToArticles: migrating ================================
-    -- add_column(:articles, :slug, :string)
-       -> 0.0009s
-    == 20160725010251 AddSlugToArticles: migrated (0.0013s) =======================
+    D, [2016-09-26T01:30:27.206111 #6] DEBUG -- :   SQL (0.4ms)  INSERT INTO "schema_migrations" ("version") VALUES ($1) RETURNING "version"  [["version", "20160925220117"]]
+    D, [2016-09-26T01:30:27.220162 #6] DEBUG -- :    (13.5ms)  COMMIT
+    D, [2016-09-26T01:30:27.227339 #6] DEBUG -- :   ActiveRecord::InternalMetadata Load (0.4ms)  SELECT  "ar_internal_metadata".* FROM "ar_internal_metadata" WHERE "ar_internal_metadata"."key" = $1 LIMIT $2  [["key", :environment], ["LIMIT", 1]]
+    D, [2016-09-26T01:30:27.231839 #6] DEBUG -- :    (0.2ms)  BEGIN
+    D, [2016-09-26T01:30:27.233441 #6] DEBUG -- :   SQL (0.4ms)  INSERT INTO "ar_internal_metadata" ("key", "value", "created_at", "updated_at") VALUES ($1, $2, $3, $4) RETURNING "key"  [["key", "environment"], ["value", "development"], ["created_at", 2016-09-26 01:30:27 UTC], ["updated_at", 2016-09-26 01:30:27 UTC]]
+    D, [2016-09-26T01:30:27.246781 #6] DEBUG -- :    (12.8ms)  COMMIT
+    D, [2016-09-26T01:30:27.247795 #6] DEBUG -- :    (0.4ms)  SELECT pg_advisory_unlock(1932410105524239390)
+    D, [2016-09-26T01:30:27.253233 #6] DEBUG -- :   ActiveRecord::SchemaMigration Load (0.2ms)  SELECT "schema_migrations".* FROM "schema_migrations"
+    D, [2016-09-26T01:30:27.285740 #6] DEBUG -- :    (1.9ms)  SELECT t2.oid::regclass::text AS to_table, a1.attname AS column, a2.attname AS primary_key, c.conname AS name, c.confupdtype AS on_update, c.confdeltype AS on_delete
+    FROM pg_constraint c
+    JOIN pg_class t1 ON c.conrelid = t1.oid
+    JOIN pg_class t2 ON c.confrelid = t2.oid
+    JOIN pg_attribute a1 ON a1.attnum = c.conkey[1] AND a1.attrelid = t1.oid
+    JOIN pg_attribute a2 ON a2.attnum = c.confkey[1] AND a2.attrelid = t2.oid
+    JOIN pg_namespace t3 ON c.connamespace = t3.oid
+    WHERE c.contype = 'f'
+      AND t1.relname = 'articles'
+      AND t3.nspname = ANY (current_schemas(false))
+    ORDER BY c.conname
 
 Cool! So the container ran the migrations and then died. Just what we wanted.
+If you want to make sure the container died, you can list the pods with:
+
+    $ kubectl get pods
+
+Output:
+
+    NAME                        READY     STATUS    RESTARTS   AGE
+    postgres-2368021586-mcuhg   1/1       Running   0          6m
+
+Just the PostgreSQL pod.
 
 Now, let's run the last piece, the web application:
 
-    $ kubectl create -f kube/development/articles-deployment.yaml
+    $ kubectl create -f kube/deployments/webapp-deployment.yaml
 
 Output:
 
     You have exposed your service on an external port on all nodes in your
     cluster.  If you want to expose this service to the external internet, you may
-    need to set up firewall rules for the service port(s) (tcp:30097) to serve traffic.
+    need to set up firewall rules for the service port(s) (tcp:32564) to serve traffic.
 
-    See http://releases.k8s.io/HEAD/docs/user-guide/services-firewalls.md for more details.
-    service "articles" created
-    deployment "articles" created
+    See http://releases.k8s.io/release-1.3/docs/user-guide/services-firewalls.md for more details.
+    service "webapp" created
+    deployment "webapp" created
 
 Don't worry about that warning. That message would be relevant only if we were
 using this service type on a production cluster.
@@ -481,13 +525,16 @@ on the cluster. Let's check that by running:
 Output:
 
     NAME                        READY     STATUS    RESTARTS   AGE
-    articles-1992548935-5es1h   1/1       Running   0          3m
-    postgres-524157917-pxhj0    1/1       Running   0          22m
+    postgres-2368021586-mcuhg   1/1       Running   0          8m
+    webapp-3628916655-9z2nm     1/1       Running   0          27s
+    webapp-3628916655-crfwv     1/1       Running   0          27s
+    webapp-3628916655-vp5cz     1/1       Running   0          27s
 
-Now copy that pod name for your articles containers (it will be different than mine)
-and check the logs:
+There you can our three replicas of the web application running along the PostgreSQL pod.
 
-    $ kubectl logs articles-1992548935-5es1h
+Let's check the logs for one of those pods:
+
+    $ kubectl logs webapp-3628916655-9z2nm
 
 Output:
 
@@ -496,14 +543,14 @@ Output:
     *** Running /etc/rc.local...
     *** Booting runit daemon...
     *** Runit started as PID 8
-    Jul 24 15:51:10 articles-1992548935-5es1h syslog-ng[16]: syslog-ng starting up; version='3.5.6'
+    Sep 26 01:33:24 webapp-3628916655-9z2nm syslog-ng[18]: syslog-ng starting up; version='3.5.6'
     ok: run: /etc/service/nginx-log-forwarder: (pid 27) 0s
-    [ 2016-07-24 15:51:11.2773 28/7fd1cc210780 age/Wat/WatchdogMain.cpp:1291 ]: Starting Passenger watchdog...
-    [ 2016-07-24 15:51:11.3093 31/7fa1a64ca780 age/Cor/CoreMain.cpp:982 ]: Starting Passenger core...
-    [ 2016-07-24 15:51:11.3095 31/7fa1a64ca780 age/Cor/CoreMain.cpp:235 ]: Passenger core running in multi-application mode.
-    [ 2016-07-24 15:51:11.3174 31/7fa1a64ca780 age/Cor/CoreMain.cpp:732 ]: Passenger core online, PID 31
-    [ 2016-07-24 15:51:11.3415 36/7f6e30d73780 age/Ust/UstRouterMain.cpp:529 ]: Starting Passenger UstRouter...
-    [ 2016-07-24 15:51:11.3452 36/7f6e30d73780 age/Ust/UstRouterMain.cpp:342 ]: Passenger UstRouter online, PID 36
+    [ 2016-09-26 01:33:26.0126 28/7f5d77fb0780 age/Wat/WatchdogMain.cpp:1291 ]: Starting Passenger watchdog...
+    [ 2016-09-26 01:33:26.0398 31/7f5369044780 age/Cor/CoreMain.cpp:982 ]: Starting Passenger core...
+    [ 2016-09-26 01:33:26.0399 31/7f5369044780 age/Cor/CoreMain.cpp:235 ]: Passenger core running in multi-application mode.
+    [ 2016-09-26 01:33:26.0596 31/7f5369044780 age/Cor/CoreMain.cpp:732 ]: Passenger core online, PID 31
+    [ 2016-09-26 01:33:26.0817 36/7fa0139b0780 age/Ust/UstRouterMain.cpp:529 ]: Starting Passenger UstRouter...
+    [ 2016-09-26 01:33:26.0883 36/7fa0139b0780 age/Ust/UstRouterMain.cpp:342 ]: Passenger UstRouter online, PID 36
 
 So it seems the passenger process started with no errors.
 
@@ -511,10 +558,12 @@ If we want to see our application in action, there's a very nice
 Minikube command that will takes us to our service.
 Run:
 
-    $ minikube service articles
+    $ minikube service webapp
 
 And that should take you to the cluster's IP address and the port that
-was assigned to our service. There's where our application lives.
+was assigned to our service. There's where our application lives. Every time you hit
+that URL, the traffic gets load balanced among the replicas you declare for the service, which
+in this case are 3 pods.
 
 Let's find our service address and make a post request to our
 articles endpoint. First we need our Minikube VM IP:
@@ -523,39 +572,40 @@ articles endpoint. First we need our Minikube VM IP:
 
 Output:
 
-    192.168.99.100
+    192.168.64.4
 
 And now the port the cluster assigned to our service:
 
-    $ kubectl describe service articles
+    $ kubectl describe service webapp
 
 Output:
 
-    Name:                   articles
-    Namespace:              default
-    Labels:                 app=articles
-    Selector:               app=articles,tier=frontend
-    Type:                   NodePort
-    IP:                     10.0.0.111
-    Port:                   <unset> 80/TCP
-    NodePort:               <unset> 30097/TCP
-    Endpoints:              172.17.0.4:80
-    Session Affinity:       None
+    Name:			webapp
+    Namespace:		default
+    Labels:			app=webapp
+    Selector:		app=webapp,tier=frontend
+    Type:			NodePort
+    IP:			10.0.0.49
+    Port:			<unset>	80/TCP
+    NodePort:		<unset>	32564/TCP
+    Endpoints:		172.17.0.4:80,172.17.0.5:80,172.17.0.6:80
+    Session Affinity:	None
     No events.
 
-So in my case I know that the service should be reachable at `http://192.168.99.100:30097`.
+So in my case I know that the service should be reachable at `http://192.168.64.4:32564`.
 In your case, you have to find your `NodePort` in the service description in order
 to find the exposed port.
 
 Let's make a curl POST request to the endpoint:
 
-    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://192.168.99.100:30097/articles
+    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://192.168.64.4:32564/articles
 
 Output:
 
-    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-24T16:03:35.179Z","updated_at":"2016-07-24T16:03:35.179Z"}%
+    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-09-26T01:47:41.639Z","updated_at":"2016-09-26T01:47:41.639Z"}%
 
 Great! We have our application fully running in our local Kubernetes cluster.
+
 The transition to a production cluster will not be hard at all. We just need
 to configure two more elements in our architecture, the Load Balancers and
 the Volume for persisting the data.
