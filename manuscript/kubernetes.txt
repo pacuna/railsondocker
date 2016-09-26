@@ -118,6 +118,8 @@ you won't be able to touch this endpoint from outside the cluster.
       labels:
         app: webapp
     spec:
+      strategy:
+        type: Recreate
       template:
         metadata:
           labels:
@@ -144,7 +146,14 @@ We start by adding the same metadata we used for the service and then the
 specifications.
 Then, for the template of the specification, we have to specify the match we need for this
 replica set and pods. As I mentioned before, the service will be looking
-for two labels: `app` and `tier` and it must match this metadata.
+for two labels: `app` and `tier` and it must match this metadata. We also
+indicate we want to use a `Recreate` strategy type. This means that we want to kill
+all the existing pods for this deployment before launching new ones. If you don't specify 
+a strategy, the deployment will use a default which is `RollinUpdate`. That type
+won't killed the old pods before launching the new ones, so you can control
+your update process in a better way. That works good with actual application, but you
+can see why that would be a problem when using containers for something like Databases.
+You don't want to have two different Database container running at the same time.
 
 Finally we define the specification for the containers. This is pretty
 similar to the Docker Compose file structure and it contains the image, the
@@ -322,37 +331,47 @@ The version I have on my machine is v0.10.0 and I'll be using the `xhyve` driver
 You can use whatever is best for your platform.
 
 You also need the `kubectl` CLI tool for launching the services and
-deployments. [Here](http://kubernetes.io/docs/user-guide/prereqs/) you can find the instructions for installing `kubectl`.
+deployments. [Here](http://kubernetes.io/docs/getting-started-guides/minikube/#download-kubectl) you can find the instructions to install `kubectl`.
 This CLI tool communicates with our cluster in order to run containers and
 services. It has a pretty solid integration with cloud services like Amazon AWS
 and Google's GCE. This tool will be our main channel of interaction with our cluster.
 
-This is the information for the version I have for the client:
-
-    Client Version: version.Info{Major:"1", Minor:"3", GitVersion:"v1.3.7+a2cba278", GitCommit:"a2cba278cba1f6881bb0a7704d9cac6fca6ed435", GitTreeState:"not a git tree", BuildDate:"2016-09-23T01:55:57Z", GoVersion:"go1.7.1", Compiler:"gc", Platform:"darwin/amd64"}
-
+Right now I'm using the version 1.4.0 for kubectl.
 Make sure you're using that version or a newer one.
 
 Once you have Minikube and kubectl ready to go, you can create your local
-cluster by running (add the --vm-driver flag if you want to use an specific VM provider):
+cluster by running (add the --vm-driver flag if you want to use an specific VM provider and
+--kubernetes-version for an specific version of Kubernetes):
 
-    $ minikube start
+In my case I'm using MacOS with the xhyve drive and since I have the version 1.4.0
+for my client (kubectl), I'll use the latest version available with Minikube for my cluster:
+
+    $ minikube start --vm-driver=xhyve --kubernetes-version="v1.4.0-beta.10"
 
 That can take a few minutes the first time. Once it finishes, you should see an output
 similar to this:
 
     Starting local Kubernetes cluster...
-    Kubernetes is available at https://192.168.64.4:8443.
     Kubectl is now configured to use the cluster.
 
-Meaning your local Kubernetes cluster is running. Kubectl will now be configured
-to interact with your cluster. This is because Kubectl can have different contexts. This means
-that you can have different cluster at the same time and switch the context for
+This indicates that your local Kubernetes cluster is running. Kubectl will now be configured
+to interact with your cluster. This is because Kubectl can have different contexts, which means
+you can have different cluster at the same time and switch the context for
 interacting with each one. In this case when we run `minikube start` it'll also
 set the current context to minikube.
 
 Minikube gives a handful set of commands for interacting with the cluster.
 For example you can run:
+
+    $ minikube ip
+
+Output:
+
+    192.168.64.7
+
+This is the IP address for your cluster.
+
+You can also run:
 
     $ minikube dashboard
 
@@ -393,19 +412,18 @@ Output:
 
     Name:			postgres
     Namespace:		default
-    CreationTimestamp:	Sun, 25 Sep 2016 22:24:48 -0300
+    CreationTimestamp:	Mon, 26 Sep 2016 20:21:45 -0300
     Labels:			app=webapp
     Selector:		app=webapp,tier=postgres
-    Replicas:		1 updated | 1 total | 0 available | 1 unavailable
-    StrategyType:		RollingUpdate
+    Replicas:		1 updated | 1 total | 1 available | 0 unavailable
+    StrategyType:		Recreate
     MinReadySeconds:	0
-    RollingUpdateStrategy:	1 max unavailable, 1 max surge
     OldReplicaSets:		<none>
-    NewReplicaSet:		postgres-2368021586 (1/1 replicas created)
+    NewReplicaSet:		postgres-1747921911 (1/1 replicas created)
     Events:
       FirstSeen	LastSeen	Count	From				SubobjectPath	Type		Reason			Message
       ---------	--------	-----	----				-------------	--------	------			-------
-      20s		20s		1	{deployment-controller }			Normal		ScalingReplicaSet	Scaled up replica set postgres-2368021586 to 1
+      4s		4s		1	{deployment-controller }			Normal		ScalingReplicaSet	Scaled up replica set postgres-1747921911 to 1
 
 If you run `minikube dashboard` again, you should see the new workloads under
 the correspondent sections.
@@ -421,11 +439,10 @@ the events in case something goes wrong. This is an output for the events sectio
     Events:
       FirstSeen	LastSeen	Count	From			SubobjectPath			Type		Reason		Message
       ---------	--------	-----	----			-------------			--------	------		-------
-      1m		1m		1	{default-scheduler }					Normal		Scheduled	Successfully assigned postgres-2368021586-mcuhg to minikube
-      1m		1m		1	{kubelet minikube}	spec.containers{postgres}	Normal		Pulling		pulling image "postgres:9.5.3"
-      1m		1m		1	{kubelet minikube}	spec.containers{postgres}	Normal		Pulled		Successfully pulled image "postgres:9.5.3"
-      1m		1m		1	{kubelet minikube}	spec.containers{postgres}	Normal		Created		Created container with docker id fbce59835854
-      1m		1m		1	{kubelet minikube}	spec.containers{postgres}	Normal		Started		Started container with docker id fbce59835854
+      5m		5m		1	{default-scheduler }					Normal		Scheduled	Successfully assigned postgres-1747921911-h516t to minikube
+      5m		5m		1	{kubelet minikube}	spec.containers{postgres}	Normal		Pulled		Container image "postgres:9.5.3" already present on machine
+      5m		5m		1	{kubelet minikube}	spec.containers{postgres}	Normal		Created		Created container with docker id b1c664c98251; Security:[seccomp=unconfined]
+      5m		5m		1	{kubelet minikube}	spec.containers{postgres}	Normal		Started		Started container with docker id b1c664c98251
 
 As you can see, all the events are pretty standard. The image is pulled from DockerHub
 and the container is launched using the specification we gave.
@@ -460,27 +477,27 @@ Output:
 
     Waiting PostgreSQL to start on 5432...
     PostgreSQL started
-    D, [2016-09-26T01:30:27.035631 #6] DEBUG -- :    (96.0ms)  CREATE TABLE "schema_migrations" ("version" character varying PRIMARY KEY)
-    D, [2016-09-26T01:30:27.120916 #6] DEBUG -- :    (81.5ms)  CREATE TABLE "ar_internal_metadata" ("key" character varying PRIMARY KEY, "value" character varying, "created_at" timestamp NOT NULL, "updated_at" timestamp NOT NULL)
-    D, [2016-09-26T01:30:27.122315 #6] DEBUG -- :    (0.3ms)  SELECT pg_try_advisory_lock(1932410105524239390);
-    D, [2016-09-26T01:30:27.130223 #6] DEBUG -- :   ActiveRecord::SchemaMigration Load (0.4ms)  SELECT "schema_migrations".* FROM "schema_migrations"
-    I, [2016-09-26T01:30:27.143467 #6]  INFO -- : Migrating to CreateArticles (20160925220117)
-    D, [2016-09-26T01:30:27.145113 #6] DEBUG -- :    (0.2ms)  BEGIN
+    D, [2016-09-26T23:29:37.704679 #6] DEBUG -- :    (103.0ms)  CREATE TABLE "schema_migrations" ("version" character varying PRIMARY KEY)
+    D, [2016-09-26T23:29:37.776729 #6] DEBUG -- :    (67.1ms)  CREATE TABLE "ar_internal_metadata" ("key" character varying PRIMARY KEY, "value" character varying, "created_at" timestamp NOT NULL, "updated_at" timestamp NOT NULL)
+    D, [2016-09-26T23:29:37.778284 #6] DEBUG -- :    (0.3ms)  SELECT pg_try_advisory_lock(1932410105524239390);
+    D, [2016-09-26T23:29:37.822212 #6] DEBUG -- :   ActiveRecord::SchemaMigration Load (0.6ms)  SELECT "schema_migrations".* FROM "schema_migrations"
+    I, [2016-09-26T23:29:37.839451 #6]  INFO -- : Migrating to CreateArticles (20160925220117)
+    D, [2016-09-26T23:29:37.841086 #6] DEBUG -- :    (0.2ms)  BEGIN
     == 20160925220117 CreateArticles: migrating ===================================
     -- create_table(:articles)
-    D, [2016-09-26T01:30:27.200486 #6] DEBUG -- :    (54.0ms)  CREATE TABLE "articles" ("id" serial primary key, "title" character varying, "body" text, "created_at" timestamp NOT NULL, "updated_at" timestamp NOT NULL)
-       -> 0.0554s
-    == 20160925220117 CreateArticles: migrated (0.0556s) ==========================
+    D, [2016-09-26T23:29:37.908021 #6] DEBUG -- :    (63.7ms)  CREATE TABLE "articles" ("id" serial primary key, "title" character varying, "body" text, "created_at" timestamp NOT NULL, "updated_at" timestamp NOT NULL)
+       -> 0.0652s
+    == 20160925220117 CreateArticles: migrated (0.0656s) ==========================
 
-    D, [2016-09-26T01:30:27.206111 #6] DEBUG -- :   SQL (0.4ms)  INSERT INTO "schema_migrations" ("version") VALUES ($1) RETURNING "version"  [["version", "20160925220117"]]
-    D, [2016-09-26T01:30:27.220162 #6] DEBUG -- :    (13.5ms)  COMMIT
-    D, [2016-09-26T01:30:27.227339 #6] DEBUG -- :   ActiveRecord::InternalMetadata Load (0.4ms)  SELECT  "ar_internal_metadata".* FROM "ar_internal_metadata" WHERE "ar_internal_metadata"."key" = $1 LIMIT $2  [["key", :environment], ["LIMIT", 1]]
-    D, [2016-09-26T01:30:27.231839 #6] DEBUG -- :    (0.2ms)  BEGIN
-    D, [2016-09-26T01:30:27.233441 #6] DEBUG -- :   SQL (0.4ms)  INSERT INTO "ar_internal_metadata" ("key", "value", "created_at", "updated_at") VALUES ($1, $2, $3, $4) RETURNING "key"  [["key", "environment"], ["value", "development"], ["created_at", 2016-09-26 01:30:27 UTC], ["updated_at", 2016-09-26 01:30:27 UTC]]
-    D, [2016-09-26T01:30:27.246781 #6] DEBUG -- :    (12.8ms)  COMMIT
-    D, [2016-09-26T01:30:27.247795 #6] DEBUG -- :    (0.4ms)  SELECT pg_advisory_unlock(1932410105524239390)
-    D, [2016-09-26T01:30:27.253233 #6] DEBUG -- :   ActiveRecord::SchemaMigration Load (0.2ms)  SELECT "schema_migrations".* FROM "schema_migrations"
-    D, [2016-09-26T01:30:27.285740 #6] DEBUG -- :    (1.9ms)  SELECT t2.oid::regclass::text AS to_table, a1.attname AS column, a2.attname AS primary_key, c.conname AS name, c.confupdtype AS on_update, c.confdeltype AS on_delete
+    D, [2016-09-26T23:29:37.914849 #6] DEBUG -- :   SQL (0.5ms)  INSERT INTO "schema_migrations" ("version") VALUES ($1) RETURNING "version"  [["version", "20160925220117"]]
+    D, [2016-09-26T23:29:37.937591 #6] DEBUG -- :    (22.2ms)  COMMIT
+    D, [2016-09-26T23:29:37.943480 #6] DEBUG -- :   ActiveRecord::InternalMetadata Load (0.3ms)  SELECT  "ar_internal_metadata".* FROM "ar_internal_metadata" WHERE "ar_internal_metadata"."key" = $1 LIMIT $2  [["key", :environment], ["LIMIT", 1]]
+    D, [2016-09-26T23:29:37.947971 #6] DEBUG -- :    (0.1ms)  BEGIN
+    D, [2016-09-26T23:29:37.951697 #6] DEBUG -- :   SQL (2.5ms)  INSERT INTO "ar_internal_metadata" ("key", "value", "created_at", "updated_at") VALUES ($1, $2, $3, $4) RETURNING "key"  [["key", "environment"], ["value", "development"], ["created_at", 2016-09-26 23:29:37 UTC], ["updated_at", 2016-09-26 23:29:37 UTC]]
+    D, [2016-09-26T23:29:37.963675 #6] DEBUG -- :    (11.4ms)  COMMIT
+    D, [2016-09-26T23:29:37.964502 #6] DEBUG -- :    (0.4ms)  SELECT pg_advisory_unlock(1932410105524239390)
+    D, [2016-09-26T23:29:37.970691 #6] DEBUG -- :   ActiveRecord::SchemaMigration Load (0.2ms)  SELECT "schema_migrations".* FROM "schema_migrations"
+    D, [2016-09-26T23:29:37.988811 #6] DEBUG -- :    (1.8ms)  SELECT t2.oid::regclass::text AS to_table, a1.attname AS column, a2.attname AS primary_key, c.conname AS name, c.confupdtype AS on_update, c.confdeltype AS on_delete
     FROM pg_constraint c
     JOIN pg_class t1 ON c.conrelid = t1.oid
     JOIN pg_class t2 ON c.confrelid = t2.oid
@@ -500,9 +517,10 @@ If you want to make sure the container died, you can list the pods with:
 Output:
 
     NAME                        READY     STATUS    RESTARTS   AGE
-    postgres-2368021586-mcuhg   1/1       Running   0          6m
+    postgres-1747921911-h516t   1/1       Running   0          10m
+      info: 1 completed object(s) was(were) not shown in pods list. Pass --show-all to see all objects.
 
-Just the PostgreSQL pod.
+Just the PostgreSQL pod and 1 completed pods, which was the migrate job.
 
 Now, let's run the last piece, the web application:
 
@@ -510,15 +528,10 @@ Now, let's run the last piece, the web application:
 
 Output:
 
-    You have exposed your service on an external port on all nodes in your
-    cluster.  If you want to expose this service to the external internet, you may
-    need to set up firewall rules for the service port(s) (tcp:32564) to serve traffic.
-
-    See http://releases.k8s.io/release-1.3/docs/user-guide/services-firewalls.md for more details.
     service "webapp" created
     deployment "webapp" created
 
-Don't worry about that warning. That message would be relevant only if we were
+Don't worry if you get a warning about port security. That message would be relevant only if we were
 using this service type on a production cluster.
 
 This command should run much faster than the previous one, since we already have the image
@@ -529,16 +542,17 @@ on the cluster. Let's check that by running:
 Output:
 
     NAME                        READY     STATUS    RESTARTS   AGE
-    postgres-2368021586-mcuhg   1/1       Running   0          8m
-    webapp-3628916655-9z2nm     1/1       Running   0          27s
-    webapp-3628916655-crfwv     1/1       Running   0          27s
-    webapp-3628916655-vp5cz     1/1       Running   0          27s
+    postgres-1747921911-h516t   1/1       Running   0          12m
+    webapp-78833492-68glu       1/1       Running   0          53s
+    webapp-78833492-op9v6       1/1       Running   0          53s
+    webapp-78833492-riyfd       1/1       Running   0          53s
+      info: 1 completed object(s) was(were) not shown in pods list. Pass --show-all to see all objects.
 
 There you can our three replicas of the web application running along the PostgreSQL pod.
 
 Let's check the logs for one of those pods:
 
-    $ kubectl logs webapp-3628916655-9z2nm
+    $ kubectl logs webapp-78833492-68glu
 
 Output:
 
@@ -547,14 +561,14 @@ Output:
     *** Running /etc/rc.local...
     *** Booting runit daemon...
     *** Runit started as PID 8
-    Sep 26 01:33:24 webapp-3628916655-9z2nm syslog-ng[18]: syslog-ng starting up; version='3.5.6'
     ok: run: /etc/service/nginx-log-forwarder: (pid 27) 0s
-    [ 2016-09-26 01:33:26.0126 28/7f5d77fb0780 age/Wat/WatchdogMain.cpp:1291 ]: Starting Passenger watchdog...
-    [ 2016-09-26 01:33:26.0398 31/7f5369044780 age/Cor/CoreMain.cpp:982 ]: Starting Passenger core...
-    [ 2016-09-26 01:33:26.0399 31/7f5369044780 age/Cor/CoreMain.cpp:235 ]: Passenger core running in multi-application mode.
-    [ 2016-09-26 01:33:26.0596 31/7f5369044780 age/Cor/CoreMain.cpp:732 ]: Passenger core online, PID 31
-    [ 2016-09-26 01:33:26.0817 36/7fa0139b0780 age/Ust/UstRouterMain.cpp:529 ]: Starting Passenger UstRouter...
-    [ 2016-09-26 01:33:26.0883 36/7fa0139b0780 age/Ust/UstRouterMain.cpp:342 ]: Passenger UstRouter online, PID 36
+    Sep 26 23:32:57 webapp-78833492-68glu syslog-ng[19]: syslog-ng starting up; version='3.5.6'
+    [ 2016-09-26 23:32:58.9714 28/7f31c0c0b780 age/Wat/WatchdogMain.cpp:1291 ]: Starting Passenger watchdog...
+    [ 2016-09-26 23:32:58.9989 31/7f7166c2d780 age/Cor/CoreMain.cpp:982 ]: Starting Passenger core...
+    [ 2016-09-26 23:32:58.9990 31/7f7166c2d780 age/Cor/CoreMain.cpp:235 ]: Passenger core running in multi-application mode.
+    [ 2016-09-26 23:32:59.0071 31/7f7166c2d780 age/Cor/CoreMain.cpp:732 ]: Passenger core online, PID 31
+    [ 2016-09-26 23:32:59.0285 38/7f0462922780 age/Ust/UstRouterMain.cpp:529 ]: Starting Passenger UstRouter...
+    [ 2016-09-26 23:32:59.0359 38/7f0462922780 age/Ust/UstRouterMain.cpp:342 ]: Passenger UstRouter online, PID 38
 
 So it seems the passenger process started with no errors.
 
@@ -576,7 +590,7 @@ articles endpoint. First we need our Minikube VM IP:
 
 Output:
 
-    192.168.64.4
+    192.168.64.7
 
 And now the port the cluster assigned to our service:
 
@@ -589,24 +603,24 @@ Output:
     Labels:			app=webapp
     Selector:		app=webapp,tier=frontend
     Type:			NodePort
-    IP:			10.0.0.49
+    IP:			10.0.0.122
     Port:			<unset>	80/TCP
-    NodePort:		<unset>	32564/TCP
+    NodePort:		<unset>	30028/TCP
     Endpoints:		172.17.0.4:80,172.17.0.5:80,172.17.0.6:80
     Session Affinity:	None
-    No events.
+    No events.%
 
-So in my case I know that the service should be reachable at `http://192.168.64.4:32564`.
+So in my case I know that the service should be reachable at `http://192.168.64.7:30028`.
 In your case, you have to find your `NodePort` in the service description in order
 to find the exposed port.
 
 Let's make a curl POST request to the endpoint:
 
-    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://192.168.64.4:32564/articles
+    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://192.168.64.7:30028/articles
 
 Output:
 
-    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-09-26T01:47:41.639Z","updated_at":"2016-09-26T01:47:41.639Z"}%
+    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-09-26T23:36:19.285Z","updated_at":"2016-09-26T23:36:19.285Z"}%
 
 Great! We have our application fully running in our local Kubernetes cluster.
 
