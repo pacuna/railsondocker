@@ -345,7 +345,11 @@ similar to this:
     Kubernetes is available at https://192.168.64.4:8443.
     Kubectl is now configured to use the cluster.
 
-Meaning your local Kubernetes cluster is running.
+Meaning your local Kubernetes cluster is running. Kubectl will now be configured
+to interact with your cluster. This is because Kubectl can have different contexts. This means
+that you can have different cluster at the same time and switch the context for
+interacting with each one. In this case when we run `minikube start` it'll also
+set the current context to minikube.
 
 Minikube gives a handful set of commands for interacting with the cluster.
 For example you can run:
