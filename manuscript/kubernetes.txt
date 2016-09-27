@@ -632,28 +632,6 @@ There are also some minor changes we need to make to our
 application for running on production. For example we'll need a secret token for production
 and also configure our database.
 
-## Setting up AWS CLI
-
-In order to allow Kubernetes to run nodes for us in our AWS account, we need to
-first configure the AWS CLI tool with our credentials.
-For that have you can go to the AWS Console interface and navigate to the Security Credentials
-section. There you can generate and download a new set of keys. Make sure
-you put these in a safe place.
-
-You can get more info on how to get this credentials
-by visiting at http://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-set-up.html
-
-Now we can install the `awscli` tool by running (you need to have python and pip installed):
-
-    $ pip install awscli
-
-For creating a new configuration, run:
-
-    $ aws configure
-
-That command will ask you for the recently created credentials, for a default
-region (I use us-west-2) and for a preferred output format (JSON of course).
-
 ## Switching the Kubernetes context
 
 You can setup different context for interacting with different clusters. Right

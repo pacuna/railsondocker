@@ -1,3 +1,4 @@
 development.txt
+production-setup.txt
 kubernetes.txt
 ecs.txt
