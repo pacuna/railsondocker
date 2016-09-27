@@ -1093,19 +1093,22 @@ and running deployment updates to our application.
 
 ## Adding persistence
 
-A very useful integration between Kubernetes and AWS is that you can
-mount AWS Volumes in a very transparent way. We only need to create
+A very useful integration between Kubernetes and AWS consists in that you can
+mount AWS Volumes in a very transparent way into your containers. We only need to create
 a volume through the AWS API and then add a new section in the deployment
 file for the service you want to persist. In our case we only need persistence
 for the PostgreSQL container. With that in place, if the container gets killed, the data
-will remain in the AWS Volume.
+will remain in the AWS Volume and can be read by the next container placed by the Kubernetes
+scheduler.
 
 Let's start by creating the volume. We can do this with a very simple command
-from the AWS CLI. The only detail here is that you need to use the same region
+using the AWS CLI. The only detail here is that you need to use the same region
 your cluster lives in. If you didn't change the default one, then the region will be
 `us-west-2` and you can use something like `us-west-2a` for the availability zone.
+Remember that our default region may be different that the one Kubernetes used for creating the cluster, 
+so let's also put it in the command along the availability zone:
 
-    $ aws ec2 create-volume --availability-zone us-west-2a --size 10 --volume-type gp2
+    $ aws ec2 create-volume --region us-west-2 --availability-zone us-west-2a --size 10 --volume-type gp2
 
 Output:
 
@@ -1113,16 +1116,16 @@ Output:
         "AvailabilityZone": "us-west-2a",
         "Encrypted": false,
         "VolumeType": "gp2",
-        "VolumeId": "vol-24e48391",
+        "VolumeId": "vol-fe268f4a",
         "State": "creating",
         "Iops": 100,
         "SnapshotId": "",
-        "CreateTime": "2016-07-25T00:25:42.871Z",
+        "CreateTime": "2016-09-27T02:51:23.429Z",
         "Size": 10
     }
 
-The output gives us the `VolumeId` we're going to need later for our template so
-don't lose it.
+The output gives us a `VolumeId` among several attributes for the created volume.
+We're going to need that Volume Id later for our template so don't lose it.
 
 Now, let's open the deployment file for the PostgreSQL service and change the
 container specification so it looks like this:
@@ -1135,7 +1138,9 @@ container specification so it looks like this:
         - name: POSTGRES_PASSWORD
           value: mysecretpassword
         - name: POSTGRES_USER
-          value: articles
+          value: webapp
+        - name: POSTGRES_DB
+          value: webapp_production
         - name: PGDATA
           value: /var/lib/postgresql/data/pgdata
         ports:
@@ -1147,23 +1152,28 @@ container specification so it looks like this:
       volumes:
         - name: postgres-persistent-storage
           awsElasticBlockStore:
-            volumeID: vol-24e48391
+            volumeID: vol-fe268f4a
             fsType: ext4
 
-Replace the `volumeID` property with yours.
+Replace the `volumeID` property with the one you got previously.
 
 In order to use the AWS Volume, we have to declare a new `PGDATA` for the database, a volume, and also
 mount that volume using the `volumeMounts` property. Then, by only using
 its `VolumeId`, we can access the volume and save our data.
+As you can see, we are using the native `awsElasticBlockStore` property from Kubernetes
+which allows the integration with the EBS service from AWS. Also, this kind of syntax
+for working with volumes is very usual. First, you have a block that declares the properties
+of the volume, and then you mount that volume into your container using the `volumeMounts`
+in this case.
 
-Let's delete our current deployment and create a new one for our database:
+It's time to try out the Volume.
+Let's delete our current deployment and launch a new one:
 
-
-    $ kubectl delete -f kube/production/postgres-deployment.yaml
+    $ kubectl delete -f kube/deployments/postgres-deployment.yaml
 
 And let's run it again with the new changes:
 
-    $ kubectl create -f kube/production/postgres-deployment.yaml
+    $ kubectl create -f kube/deployments/postgres-deployment.yaml
 
 Output:
 
@@ -1177,35 +1187,34 @@ volume:
 
 Output:
 
-
-    Name:           postgres-16042964
-    Namespace:      default
-    Image(s):       postgres:9.5.3
-    Selector:       app=articles,pod-template-hash=16042964,tier=postgres
-    Labels:         app=articles
-                    pod-template-hash=16042964
+    Name:		postgres-560075503
+    Namespace:	default
+    Image(s):	postgres:9.5.3
+    Selector:	app=webapp,pod-template-hash=560075503,tier=postgres
+    Labels:		app=webapp
+                    pod-template-hash=560075503
                     tier=postgres
-    Replicas:       1 current / 1 desired
-    Pods Status:    1 Running / 0 Waiting / 0 Succeeded / 0 Failed
+    Replicas:	1 current / 1 desired
+    Pods Status:	1 Running / 0 Waiting / 0 Succeeded / 0 Failed
     Volumes:
       postgres-persistent-storage:
-        Type:       AWSElasticBlockStore (a Persistent Disk resource in AWS)
-        VolumeID:   vol-24e48391
-        FSType:     ext4
-        Partition:  0
-        ReadOnly:   false
+        Type:	AWSElasticBlockStore (a Persistent Disk resource in AWS)
+        VolumeID:	vol-fe268f4a
+        FSType:	ext4
+        Partition:	0
+        ReadOnly:	false
     Events:
-      FirstSeen     LastSeen        Count   From                            SubobjectPath   Type            Reason                  Message
-      ---------     --------        -----   ----                            -------------   --------        ------                  -------
-      50s           50s             1       {replicaset-controller }                        Normal          SuccessfulCreate        Created pod: postgres-16042964-ylnhu
+      FirstSeen	LastSeen	Count	From				SubobjectPath	Type		Reason			Message
+      ---------	--------	-----	----				-------------	--------	------			-------
+      28s		28s		1	{replicaset-controller }			Normal		SuccessfulCreate	Created pod: postgres-560075503-z75yl
 
-You can see there the Volume section showing that the volume is correctly
+You can see there the Volumes section showing that the volume is correctly
 mounted into the container.
 
 We can also query the AWS API to see if can gives us some information of which instance
 is this volume attached to it:
 
-    $ aws ec2 describe-volumes --volume-ids vol-24e48391
+    $ aws ec2 describe-volumes --volume-ids vol-fe268f4a --region us-west-2
 
 Output:
 
@@ -1215,9 +1224,9 @@ Output:
                 "AvailabilityZone": "us-west-2a",
                 "Attachments": [
                     {
-                        "AttachTime": "2016-07-25T00:34:51.000Z",
-                        "InstanceId": "i-e3a26477",
-                        "VolumeId": "vol-24e48391",
+                        "AttachTime": "2016-09-27T03:01:03.000Z",
+                        "InstanceId": "i-8f86bb97",
+                        "VolumeId": "vol-fe268f4a",
                         "State": "attached",
                         "DeleteOnTermination": false,
                         "Device": "/dev/xvdba"
@@ -1225,26 +1234,27 @@ Output:
                 ],
                 "Encrypted": false,
                 "VolumeType": "gp2",
-                "VolumeId": "vol-24e48391",
+                "VolumeId": "vol-fe268f4a",
                 "State": "in-use",
                 "Iops": 100,
                 "SnapshotId": "",
-                "CreateTime": "2016-07-25T00:25:42.871Z",
+                "CreateTime": "2016-09-27T02:51:23.429Z",
                 "Size": 10
             }
         ]
     }
 
 There you can see that this volume is in fact attached to an instance. That's
-the instance that's holding the PostgreSQL container right now.
+the instance that's holding the PostgreSQL container right now and that belongs to the 
+Kubernetes cluster.
 
 If we want to do our smoke test one more time to see if the database is working correctly, we
 first have to rerun our setup Job. Remember that this container migrates
 the database and right now we are starting with a fresh PostgreSQL container that
 from now on will be able to persist its data.
 
-    $ kubectl delete -f kube/production/setup-job.yaml
-    $ kubectl create -f kube/production/setup-job.yaml
+    $ kubectl delete job/setup
+    $ kubectl create -f kube/jobs/setup-job.yaml
 
 As always let's check out the logs:
 
@@ -1255,26 +1265,41 @@ Output:
 
     Waiting PostgreSQL to start on 5432...
     PostgreSQL started
-    == 20160723153218 CreateArticles: migrating ===================================
+    D, [2016-09-27T03:06:16.395761 #6] DEBUG -- :    (10.2ms)  CREATE TABLE "schema_migrations" ("version" character varying PRIMARY KEY)
+    D, [2016-09-27T03:06:16.406388 #6] DEBUG -- :    (7.7ms)  CREATE TABLE "ar_internal_metadata" ("key" character varying PRIMARY KEY, "value" character varying, "created_at" timestamp NOT NULL, "updated_at" timestamp NOT NULL)
+    D, [2016-09-27T03:06:16.407140 #6] DEBUG -- :    (0.2ms)  SELECT pg_try_advisory_lock(3863469888790475145);
+    D, [2016-09-27T03:06:16.414507 #6] DEBUG -- :   ActiveRecord::SchemaMigration Load (0.3ms)  SELECT "schema_migrations".* FROM "schema_migrations"
+    I, [2016-09-27T03:06:16.419156 #6]  INFO -- : Migrating to CreateArticles (20160925220117)
+    D, [2016-09-27T03:06:16.420605 #6] DEBUG -- :    (0.1ms)  BEGIN
+    == 20160925220117 CreateArticles: migrating ===================================
     -- create_table(:articles)
-       -> 0.0073s
-    == 20160723153218 CreateArticles: migrated (0.0074s) ==========================
+    D, [2016-09-27T03:06:16.429336 #6] DEBUG -- :    (7.5ms)  CREATE TABLE "articles" ("id" serial primary key, "title" character varying, "body" text, "created_at" timestamp NOT NULL, "updated_at" timestamp NOT NULL)
+       -> 0.0086s
+    == 20160925220117 CreateArticles: migrated (0.0087s) ==========================
 
-We are good to go. Now let's run that test:
+    D, [2016-09-27T03:06:16.433646 #6] DEBUG -- :   SQL (0.3ms)  INSERT INTO "schema_migrations" ("version") VALUES ($1) RETURNING "version"  [["version", "20160925220117"]]
+    D, [2016-09-27T03:06:16.435490 #6] DEBUG -- :    (1.6ms)  COMMIT
+    D, [2016-09-27T03:06:16.438876 #6] DEBUG -- :   ActiveRecord::InternalMetadata Load (0.3ms)  SELECT  "ar_internal_metadata".* FROM "ar_internal_metadata" WHERE "ar_internal_metadata"."key" = $1 LIMIT $2  [["key", :environment], ["LIMIT", 1]]
+    D, [2016-09-27T03:06:16.442136 #6] DEBUG -- :    (0.1ms)  BEGIN
+    D, [2016-09-27T03:06:16.443314 #6] DEBUG -- :   SQL (0.3ms)  INSERT INTO "ar_internal_metadata" ("key", "value", "created_at", "updated_at") VALUES ($1, $2, $3, $4) RETURNING "key"  [["key", "environment"], ["value", "production"], ["created_at", 2016-09-27 03:06:16 UTC], ["updated_at", 2016-09-27 03:06:16 UTC]]
+    D, [2016-09-27T03:06:16.444709 #6] DEBUG -- :    (1.1ms)  COMMIT
+    D, [2016-09-27T03:06:16.445132 #6] DEBUG -- :    (0.2ms)  SELECT pg_advisory_unlock(3863469888790475145)
 
-    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com/articles
+We are good to go. Now let's run that test using our ELB DNS address:
+
+    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://a333dae17845a11e6b47b06103f11903-585648094.us-west-2.elb.amazonaws.com/articles
 
 Output:
 
-    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-25T00:47:33.462Z","updated_at":"2016-07-25T00:47:33.462Z"}%
+    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-09-27T03:07:36.706Z","updated_at":"2016-09-27T03:07:36.706Z"}%
 
 Great! It's working. But, how can we know that we are actually persisting the data?
 Well, there's only one way to know. Let's delete our PostgreSQL deployment and run it
 again one more time. This time we should not even need to run the setup, because
-the tables are already there. Also we have one article there, so let's hope it's
+the tables should still be there. Also we have one article there, so let's hope it's
 still there after a new deployment:
 
-    $ kubectl delete -f kube/production/postgres-deployment.yaml
+    $ kubectl delete -f kube/deployments/postgres-deployment.yaml
 
 Output:
 
@@ -1283,7 +1308,7 @@ Output:
 
 Now let's recreate it:
 
-    $ kubectl create -f kube/production/postgres-deployment.yaml
+    $ kubectl create -f kube/deployments/postgres-deployment.yaml
 
 Output:
 
@@ -1292,15 +1317,15 @@ Output:
 
 Let's check if we have a valid response and our first article back:
 
-    $ curl http://a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com/articles
+    $ curl http://a333dae17845a11e6b47b06103f11903-585648094.us-west-2.elb.amazonaws.com/articles
 
 Output:
 
-    [{"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-25T00:47:33.462Z","updated_at":"2016-07-25T00:47:33.462Z"}]%
+    [{"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-09-27T03:07:36.706Z","updated_at":"2016-09-27T03:07:36.706Z"}]%
 
 Awesome. This means we can kill the PostgreSQL container and the data
 won't be lost. You can apply this trick for persisting any type of data, for example
-for a search engine like Elasticsearch or another database like MySQL or MongoDB.
+for a search engine like Elasticsearch or a different database like MySQL or MongoDB.
 
 ## Updating the application
 
