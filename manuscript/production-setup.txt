@@ -1,0 +1,112 @@
+# Production setup
+
+One of the reasons why a lot of people enjoy using tools like Kubernetes
+and ECS, is because their integration with Cloud Providers.
+It can be very challenging to configure a cluster by hand, even if you use
+modern tools like Kubernetes. You have to configure the way your nodes
+are going to join the cluster and communicate to each other, the service
+discovery mechanism and the integration with the extra tools the Cloud offers, like
+load balancing and persistent storages.
+
+With Kubernetes and ECS, you can launch a cluster without worry about this issues.
+Even if you want to build a high-availability cluster, distributed among several regions, 
+you'll have high level tools for accomplish that without having to deep to heavy into
+networking issues.
+
+In this section we're going to install an essential dependency that's going to allow
+Kubernetes and AWS to manage our resources for us. This tools is called AWS Command
+Line Interface (aws cli for short) and allows the interaction with all the services
+available in our AWS account.
+
+If you don't have an AWS account, you can go to the [official page](https://aws.amazon.com/)
+and create one now. It's going to be necessary for the following steps.
+Keep in mind although you have a free-tier for some resource until certain limits, we are going
+to be using resources that don't fall into that category, so you will be billed
+for the time you run this resources, but don't worry. You can launch as many servers, Load Balancers, 
+or S3 buckets you want, and you'll have a small bill as long you deleted all after you're done.
+
+## Installing the AWS CLI
+
+The [official documentation](http://docs.aws.amazon.com/cli/latest/userguide/installing.html)
+discuses several methods to install the tool according to your operating system.
+Once dependency that you would need on your system is python.
+
+In my case I'm using MacOs. If you're also using MacOs or linux, you can
+use the `AWS CLI Bundled Installer` and install aws on your system with
+the following commands:
+
+    $ curl "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip"
+    $ unzip awscli-bundle.zip
+    $ sudo ./awscli-bundle/install -i /usr/local/aws -b /usr/local/bin/aws
+
+If you're on windows, you would have to use `pip` and install the `awscli` package.
+
+After running those commands, I can run:
+
+    $ aws --version
+
+Output:
+
+    aws-cli/1.10.66 Python/2.7.10 Darwin/16.0.0 botocore/1.4.56
+
+So I have the tool correctly installed.
+
+## Configuring the AWS CLI
+
+Before configuring the AWS CLI, you need to get an access key and secret access key
+for your account. This are personal tokens that will allow third-party applications or
+the AWS CLI, to manage resources on your behalf.
+In order to get this tokens, go to the [documentation](http://docs.aws.amazon.com/general/latest/gr/managing-aws-access-keys.html)
+and follow the steps. This shouldn't take too long since all the process
+gets done via the AWS graphical interface.
+
+Once you have you tokens, go back to your console and run:
+
+    $ aws configure
+
+    AWS Access Key ID [None]: XXXXXXXXXXXXXXXXXXXX
+    AWS Secret Access Key [None]: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    Default region name [None]: us-east-1
+    Default output format [None]: json
+
+And add your own configuration. It's also a good idea to set the default region
+immediately so you don't have to put with every command you run.
+
+After running this command, you're credentials will be save under `~/.aws/credentials`:
+
+    [default]
+    aws_access_key_id = XXXXXXXXXXXXXXXXXXXX
+    aws_secret_access_key = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+And your configuration under `/.aws/config`:
+
+    [default]
+    output = json
+    region = us-east-1
+
+In case you wonder, `default` is your default profile. You can have several
+profiles which are associated to different AWS accounts. So for example, you can
+configure a profile for work, an another that's personal by using different sections
+in the files:
+
+    [default]
+    aws_access_key_id = XXXXXXXXXXXXXXXXXXXX
+    aws_secret_access_key = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+    [work]
+    aws_access_key_id = XXXXXXXXXXXXXXXXXXXX
+    aws_secret_access_key = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+The default profile will be used if don't specify any when running commands.
+If you want to run commands using an specific profile, you just have to
+add the flag `--profile another-profile` to every command.
+
+Now that we have this tool configured, Kubernetes can use it for launching our cluster, 
+and we can also use it for managing our ECS resources.
+
+All the operations that you do with the AWS CLI can also be done using the graphical interface.
+The big advantage of using the CLI is that you can save your commands for avoiding
+repetition and also you can automate almost everything you want. So for example, you can
+create a Load Balancer by following a Wizard and repeat that process for all the Load Balancers you need, 
+or you can figure out how to do it by using the AWS CLI, save that command and run it
+every time you need a new one.
