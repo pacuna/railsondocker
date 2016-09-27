@@ -632,10 +632,9 @@ There are also some minor changes we need to make to our
 application for running on production. For example we'll need a secret token for production
 and also configure our database.
 
-## Switching the Kubernetes context
+## Launching an AWS Kubernetes Cluster
 
-You can setup different context for interacting with different clusters. Right
-now if we run:
+Right now if we run:
 
     $ kubectl config current-context
 
@@ -644,7 +643,7 @@ We get:
     minikube
 
 That's because when we installed Minikube, an specific context was created
-so we could interact with our local cluster by using `kubectl`.
+so we could interact with our local cluster with `kubectl`.
 
 After we create our new AWS cluster, the Kubernetes installation script will create a new
 context for us, so we can switch back and forth between Minikube and the production cluster.
@@ -689,25 +688,20 @@ in our account:
 
 That can take a while. The script will download Kubernetes (which is kind of heavy)
 and then it'll launch the nodes and all the necessary elements for the cluster. It's
-going to create Security Groups, a VPC, an S3 Bucket and the EC2 instances between
+going to create Security Groups, a VPC, an S3 Bucket and the EC2 instances among
 other stuff.
 
-When it's finished, at the end of the output you should see something like
+Once it's finished, at the end of the output you should see something like
 this:
 
-    Kubernetes master is running at https://52.41.37.108
-    Elasticsearch is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/elasticsearch-logging
-    Heapster is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/heapster
-    Kibana is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/kibana-logging
-    KubeDNS is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/kube-dns
-    kubernetes-dashboard is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/kubernetes-dashboard
-    Grafana is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/monitoring-grafana
-    InfluxDB is running at https://52.41.37.108/api/v1/proxy/namespaces/kube-system/services/monitoring-influxdb
-
-    To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
-
-    Kubernetes binaries at /Users/pacuna/Books/rails-on-kubernetes/articles/kubernetes/cluster/
-    You may want to add this directory to your PATH in $HOME/.profile
+    Kubernetes master is running at https://52.32.34.173
+    Elasticsearch is running at https://52.32.34.173/api/v1/proxy/namespaces/kube-system/services/elasticsearch-logging
+    Heapster is running at https://52.32.34.173/api/v1/proxy/namespaces/kube-system/services/heapster
+    Kibana is running at https://52.32.34.173/api/v1/proxy/namespaces/kube-system/services/kibana-logging
+    KubeDNS is running at https://52.32.34.173/api/v1/proxy/namespaces/kube-system/services/kube-dns
+    kubernetes-dashboard is running at https://52.32.34.173/api/v1/proxy/namespaces/kube-system/services/kubernetes-dashboard
+    Grafana is running at https://52.32.34.173/api/v1/proxy/namespaces/kube-system/services/monitoring-grafana
+    InfluxDB is running at https://52.32.34.173/api/v1/proxy/namespaces/kube-system/services/monitoring-influxdb
 
 There you can see all the different services that Kubernetes installed in our
 cluster and you'll also find your cluster's IP address. It also has added the configuration credentials
@@ -720,29 +714,40 @@ to this:
         password: xxxxxxxxxxxxxxxx
         username: admin
 
+If you inspect the file, you should also see the Minikube sections. This file
+is what allows kubectl to interact with different cluster by switching context.
+If you now run:
+
+    $ kubectl config current-context
+    aws_kubernetes
+
+That's the new context Kubernetes created for us.
+
 Visit your cluster's IP address and use those credentials for login into
 the cluster.
 
 Once you're logged in, you'll first see a list of endpoints you can
 access from there. The dashboard is under the `/ui` namespace. So in my case
-I can visit `https://52.41.37.108/ui` and that'll take me to my production
+I can visit `https://52.32.34.173/ui` and that'll take me to my production
 cluster's dashboard.
 
 Now we just need to prepare our templates for production.
 
-## Testing production settings with Minikube
-
-As I mentioned before, we have to make some changes to our application before
-shipping it to a production environment. We'll make these changes and then we'll try
-to deploy it with Minikube to see if it works. We still won't add persistence storage. We just
-want to check if the Rails production environment works correctly.
+## Running the templates on production
 
 First, we need to add a secret token for production environment.
 In the root of the application, run:
 
-    $ rake secret
+    $ docker-compose run --rm webapp bin/rake secret RAILS_ENV=production
+
+    Starting webapp_postgres_data_1
+    Starting webapp_webapp_setup_1
+    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 And copy that token to the `config/secrets.yml` file under the production section.
+
+    production:
+      secret_key_base: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 Now open the `config/database.yml` file and add the following values under the
 production section:
@@ -750,53 +755,142 @@ production section:
     production:
       <<: *default
       host: postgres
-      database: articles
-      username: articles
+      database: webapp_production
+      username: webapp
       password: mysecretpassword
 
-And that's it. Now let's test this configuration with Minikube.
+Notice here we are using a new database named `webapp_production`. Right now
+we are declaring the DB credentials in the postgres deployment template.
+Open the `kube/deployments/postgres.yaml` and change the environmental variables to:
 
-First let's switch the kubectl context:
+    env:
+    - name: POSTGRES_PASSWORD
+      value: mysecretpassword
+    - name: POSTGRES_USER
+      value: webapp
+    - name: POSTGRES_DB
+      value: webapp_production
 
-    $ kubectl config use-context minikube
+Let's run this first template:
+
+    $ kubectl create -f kube/deployments/postgres-deployment.yaml
 
 Output:
 
-    switched to context "minikube".
+    service "postgres" created
+    deployment "postgres" created
 
-If you haven't deleted the deployments you should be able to see them with the command:
+Let's describe our service:
 
-    $ kubectl get deployments
+    $ kubectl describe service postgres
 
 Output:
 
-    NAME       DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
-    articles   1         1         1            1           5h
-    postgres   1         1         1            1           5h
+    Name:			postgres
+    Namespace:		default
+    Labels:			app=webapp
+    Selector:		app=webapp,tier=postgres
+    Type:			ClusterIP
+    IP:			None
+    Port:			<unset>	5432/TCP
+    Endpoints:		10.244.0.7:5432
+    Session Affinity:	None
+    No events.%
 
-We are going to update the web application image so it can pick up our latests
-changes. After that, we have to push it to DockerHub and update our articles-deployment file
-and `setup-job` file.
+So it seems the service was correctly deployed.
 
-First, let's build our new version and push it DockerHub:
+Let's continue with some changes to the setup container job template.
+First, we must change the `PASSENGER_APP_ENV` environmental variable so 
+the Rails environment is production:
 
-    $ docker build -t username/articles:v_1 .
-    $ docker push username/articles:v_1
+    env:
+    - name: PASSENGER_APP_ENV
+      value: production
 
-Now we can update our deployment files. We only need to update
-the web application and the setup container since we are using the same database
-in the PostgreSQL container.
+Next, the `setup.sh` we currently have is migrating our development database, since
+it doesn't have the `RAILS_ENV=production` declaration along the command. 
+Let's generate a new setup file for production environment:
 
-We are going to drop the current development deployments and generate new ones
-for the production environment.
-For that, first let's copy all of our development templates
-to the production folder:
+    $ touch setup.production.sh
+    $ chmod +x setup.production.sh
 
-    $ cp kube/development/* kube/production
+And add the following:
 
-Now open the setup-job.yaml and replace the container version and also the
-passenger environmental variable that defines the Rails environment (replace the
-username with yours):
+    #!/bin/sh
+
+    echo "Waiting PostgreSQL to start on 5432..."
+
+    while ! nc -z postgres 5432; do
+      sleep 0.1
+    done
+
+    echo "PostgreSQL started"
+
+    bin/rails db:migrate RAILS_ENV=production
+
+As you can see, the file is practically the same. The only distinction is that
+we are using the production value for the RAILS_ENV variable.
+Since we have a new entrypoint, let's add this new file to the entrypoint
+of the setup job command:
+
+    command: ["/bin/bash", "./setup.production.sh"]
+
+Before running the setup template, let's update our Docker image
+using the script `push.sh` we created previously:
+
+    $ git add .
+    $ git commit -m 'add production templates'
+    $ ./push.sh
+
+Output (truncated):
+
+    Sending build context to Docker daemon 24.32 MB
+    Step 1 : FROM phusion/passenger-ruby23:0.9.19
+     ---> 6841e494987f
+    Step 2 : ENV HOME /root
+     ---> Using cache
+     ---> e70985107acc
+    Step 3 : CMD /sbin/my_init
+     ---> Using cache
+     ---> babd8b525225
+    Step 4 : RUN apt-get update && apt-get install -y -o Dpkg::Options::="--force-confold" netcat
+     ---> Using cache
+     ---> 74da8c84b454
+    Step 5 : RUN rm -f /etc/service/nginx/down
+    ...
+    The push refers to a repository [docker.io/pacuna/webapp]
+    c3dc4ebe27b6: Pushed
+    d29dfd2261fa: Pushing [================>                                  ] 7.566 MB/23.13 MB
+    3f3247bf1fef: Pushed
+    e5d0c4cf80b0: Pushing [================================>                  ] 15.17 MB/23.13 MB
+    f7feb319b319: Layer already exists
+    0945e5099009: Layer already exists
+    90f2b6e5ebff: Layer already exists
+    20138267dbc3: Layer already exists
+    ...
+
+Now that we have our image up-to-date, let's modify the setup job using the latest
+tag we just pushed. You can get the latest tag running `git rev-parse --short HEAD` or
+running `docker images` and see what is the latest generated image for your application:
+
+    $ git rev-parse --short HEAD
+    915685c
+
+    $ docker images
+
+    REPOSITORY                 TAG                 IMAGE ID            CREATED             SIZE
+    pacuna/webapp              915685c             b0a8963a7a68        4 minutes ago       850.6 MB
+    ...
+
+So there I can see my latest tag is `915685c`.
+
+Open the `kube/jobs/setup-job.yaml` and change the tag for the container image:
+
+    containers:
+    - name: setup
+      image: pacuna/webapp:915685c
+
+The final template should look like this:
 
     apiVersion: batch/v1
     kind: Job
@@ -809,161 +903,20 @@ username with yours):
         spec:
           containers:
           - name: setup
-            image: pacuna/articles:v_1
-            command: ["/bin/bash", "./setup.sh"]
-            env:
-            - name: PASSENGER_APP_ENV
-              value: development
-          restartPolicy: Never
-
-Now, let's do the same thing with the articles-deployment.yaml file (replace the username
-with yours):
-
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: articles
-      labels:
-        app: articles
-    spec:
-      ports:
-        - port: 80
-      selector:
-        app: articles
-        tier: frontend
-      type: NodePort
-    ---
-    apiVersion: extensions/v1beta1
-    kind: Deployment
-    metadata:
-      name: articles
-      labels:
-        app: articles
-    spec:
-      strategy:
-        type: RollingUpdate
-      template:
-        metadata:
-          labels:
-            app: articles
-            tier: frontend
-        spec:
-          containers:
-          - image: username/articles:v_1
-            name: articles
+            image: pacuna/webapp:915685c
+            command: ["/bin/bash", "./setup.production.sh"]
             env:
             - name: PASSENGER_APP_ENV
               value: production
-            ports:
-            - containerPort: 80
-              name: articles
-            imagePullPolicy: Always
+          restartPolicy: Never
 
-There you can see that the only thing we changed was the `PASSENGER_APP_ENV` variable
-and the image version.
+And now we can run the template:
 
-Let's remove the current deployments and setup job:
-
-    $ kubectl delete -f kube/development/articles-deployment.yaml
-    $ kubectl delete -f kube/development/postgres-deployment.yaml
-    $ kubectl delete -f kube/development/setup-job.yaml
-
-Just a quick check to see if there are still pods running on the cluster:
-
-    $ kubectl get pods
-
-We get no output, so the cluster is empty. Let's run our
-production templates:
-
-    $ kubectl create -f kube/production/postgres-deployment.yaml
-
-For the database,
-
-    $ kubectl create -f kube/production/setup-job.yaml
-
-For the setup. Wait for a little bit so the setup finishes.
-Run the logs command to see if it's ready:
-
-    $ pods=$(kubectl get pods --selector=job-name=setup --output=jsonpath={.items..metadata.name})
-    $ kubectl logs $pods
-
-Output should be:
-
-    Waiting PostgreSQL to start on 5432...
-    PostgreSQL started
-    == 20160723153218 CreateArticles: migrating ===================================
-    -- create_table(:articles)
-       -> 0.0064s
-    == 20160723153218 CreateArticles: migrated (0.0066s) ==========================
-
-Now the migrations are ready, let's run our application:
-
-    $ kubectl create -f kube/production/articles-deployment.yaml
-
-Let's open the service with the Minikube shortcut:
-
-    $ minikube service articles
-
-You probably will see a blank page. Remember that on production Rails
-doesn't show the welcome page. Let's try to add an article. This time
-the assigned port is 32231. Remember you can get yours by running:
-
-    $ kubectl describe service articles
+    $ kubectl create -f kube/jobs/setup-job.yaml
 
 Output:
 
-    Name:                   articles
-    Namespace:              default
-    Labels:                 app=articles
-    Selector:               app=articles,tier=frontend
-    Type:                   NodePort
-    IP:                     10.0.0.204
-    Port:                   <unset> 80/TCP
-    NodePort:               <unset> 32231/TCP
-    Endpoints:              172.17.0.4:80
-    Session Affinity:       None
-    No events.
-
-And you Minikube IP with `minikube ip`.
-
-    curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://192.168.99.100:32231/articles
-
-Output:
-
-    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-24T21:35:18.497Z","updated_at":"2016-07-24T21:35:18.497Z"}%
-
-Great! So our production setup is ready for our real production cluster.
-Testing your configuration files locally can be a really good practice and it can help you to find
-errors quickly, since you won't be running commands remotely.
-
-## Running the templates on production
-
-It's time to try out our templates on our production cluster. Let's first
-switch to the context the AWS script created for us (also in the `~/.kube/config` file):
-
-    $ kubectl config use-context aws_kubernetes
-
-Let's run a basic command to see if we're really connected to the cluster:
-
-    $ kubectl get services
-
-Output:
-
-    NAME         CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
-    kubernetes   10.0.0.1     <none>        443/TCP   1h
-
-You can see that we only have the Kubernetes service running. Let run our first one:
-
-    $ kubectl create -f kube/production/postgres-deployment.yaml
-
-Output:
-
-    service "postgres" created
-    deployment "postgres" created
-
-Now the setup:
-
-    $ kubectl create -f kube/production/setup-job.yaml
+    job "setup" created
 
 Check the logs after a few minutes to see if it's finished:
 
@@ -974,77 +927,169 @@ Output:
 
     Waiting PostgreSQL to start on 5432...
     PostgreSQL started
-    == 20160723153218 CreateArticles: migrating ===================================
+    D, [2016-09-27T02:22:06.207320 #6] DEBUG -- :    (21.4ms)  CREATE TABLE "schema_migrations" ("version" character varying PRIMARY KEY)
+    D, [2016-09-27T02:22:06.218350 #6] DEBUG -- :    (8.0ms)  CREATE TABLE "ar_internal_metadata" ("key" character varying PRIMARY KEY, "value" character varying, "created_at" timestamp NOT NULL, "updated_at" timestamp NOT NULL)
+    D, [2016-09-27T02:22:06.219207 #6] DEBUG -- :    (0.2ms)  SELECT pg_try_advisory_lock(3863469888790475145);
+    D, [2016-09-27T02:22:06.227247 #6] DEBUG -- :   ActiveRecord::SchemaMigration Load (0.4ms)  SELECT "schema_migrations".* FROM "schema_migrations"
+    I, [2016-09-27T02:22:06.237053 #6]  INFO -- : Migrating to CreateArticles (20160925220117)
+    D, [2016-09-27T02:22:06.238575 #6] DEBUG -- :    (0.1ms)  BEGIN
+    == 20160925220117 CreateArticles: migrating ===================================
     -- create_table(:articles)
-       -> 0.0122s
-    == 20160723153218 CreateArticles: migrated (0.0123s) ==========================
+    D, [2016-09-27T02:22:06.250670 #6] DEBUG -- :    (10.9ms)  CREATE TABLE "articles" ("id" serial primary key, "title" character varying, "body" text, "created_at" timestamp NOT NULL, "updated_at" timestamp NOT NULL)
+       -> 0.0119s
+    == 20160925220117 CreateArticles: migrated (0.0121s) ==========================
 
-And finally for the web application we want to make an small change. Until now
+    D, [2016-09-27T02:22:06.255595 #6] DEBUG -- :   SQL (0.3ms)  INSERT INTO "schema_migrations" ("version") VALUES ($1) RETURNING "version"  [["version", "20160925220117"]]
+    D, [2016-09-27T02:22:06.256840 #6] DEBUG -- :    (1.0ms)  COMMIT
+    D, [2016-09-27T02:22:06.260468 #6] DEBUG -- :   ActiveRecord::InternalMetadata Load (0.3ms)  SELECT  "ar_internal_metadata".* FROM "ar_internal_metadata" WHERE "ar_internal_metadata"."key" = $1 LIMIT $2  [["key", :environment], ["LIMIT", 1]]
+    D, [2016-09-27T02:22:06.263914 #6] DEBUG -- :    (0.1ms)  BEGIN
+    D, [2016-09-27T02:22:06.265326 #6] DEBUG -- :   SQL (0.3ms)  INSERT INTO "ar_internal_metadata" ("key", "value", "created_at", "updated_at") VALUES ($1, $2, $3, $4) RETURNING "key"  [["key", "environment"], ["value", "production"], ["created_at", 2016-09-27 02:22:06 UTC], ["updated_at", 2016-09-27 02:22:06 UTC]]
+    D, [2016-09-27T02:22:06.266304 #6] DEBUG -- :    (0.7ms)  COMMIT
+    D, [2016-09-27T02:22:06.266731 #6] DEBUG -- :    (0.2ms)  SELECT pg_advisory_unlock(3863469888790475145)
+
+So we can see the production database was correctly migrated.
+
+Finally for the web application we want to make the same changes we did for the setup job
+regards to the PASSENGER_APP_ENV and tag for image plus an small change. Until now
 we have been using a `NodePort` type for the service. Well, now that we are on
 production, we can use a LoadBalancer, so we can have an static endpoint for that
-service. Open the 'kube/production/articles-deployment.yaml' file and change
+service. Open the 'kube/deployments/webapp-deployment.yaml' file and change
 the service type to `LoadBalancer`:
 
     apiVersion: v1
     kind: Service
     metadata:
-      name: articles
+      name: webapp
       labels:
-        app: articles
+        app: webapp
     spec:
       ports:
         - port: 80
       selector:
-        app: articles
+        app: webapp
         tier: frontend
       type: LoadBalancer
 
-And leave the rest of the file the way it is.
+And finally change the tag image with your latest and also change the PASSENGER_APP_ENV to production.
+The final deployment template should look like this:
 
-Now create the deployment:
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: webapp
+      labels:
+        app: webapp
+    spec:
+      ports:
+        - port: 80
+      selector:
+        app: webapp
+        tier: frontend
+      type: LoadBalancer
+    ---
+    apiVersion: extensions/v1beta1
+    kind: Deployment
+    metadata:
+      name: webapp
+      labels:
+        app: webapp
+    spec:
+      replicas: 3
+      template:
+        metadata:
+          labels:
+            app: webapp
+            tier: frontend
+        spec:
+          containers:
+          - image: pacuna/webapp:915685c
+            name: webapp
+            env:
+            - name: PASSENGER_APP_ENV
+              value: production
+            ports:
+            - containerPort: 80
+              name: webapp
+            imagePullPolicy: Always
 
-    $ kubectl create -f kube/production/articles-deployment.yaml
+Now create the webapp deployment:
+
+    $ kubectl create -f kube/deployments/webapp-deployment.yaml
+    service "webapp" created
+    deployment "webapp" created
 
 If we inspect the service with:
 
-    $ kubectl describe service articles
+    $ kubectl describe service webapp
 
 We'll see:
 
-    Name:                   articles
-    Namespace:              default
-    Labels:                 app=articles
-    Selector:               app=articles,tier=frontend
-    Type:                   LoadBalancer
-    IP:                     10.0.0.107
-    LoadBalancer Ingress:   a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com
-    Port:                   <unset> 80/TCP
-    NodePort:               <unset> 31810/TCP
-    Endpoints:              10.244.1.6:80
-    Session Affinity:       None
+    Name:                 webapp
+    Namespace:            default
+    Labels:               app=webapp
+    Selector:             app=webapp,tier=frontend
+    Type:                 LoadBalancer
+    IP:                   10.0.250.219
+    LoadBalancer Ingress: a333dae17845a11e6b47b06103f11903-585648094.us-west-2.elb.amazonaws.com
+    Port:                 <unset>	80/TCP
+    NodePort:             <unset>	30426/TCP
+    Endpoints:            10.244.0.57:80,10.244.0.58:80,10.244.0.59:80
+    Session Affinity:     None
     Events:
-      FirstSeen     LastSeen        Count   From                    SubobjectPath       Type            Reason                  Message
-      ---------     --------        -----   ----                    -------------       --------        ------                  -------
-      1m            1m              1       {service-controller }              Normal           CreatingLoadBalancer    Creating load balancer
-      1m            1m              1       {service-controller }              Normal           CreatedLoadBalancer     Created load balancer
+      FirstSeen	LastSeen	Count	From			SubobjectPath	Type		Reason			Message
+      ---------	--------	-----	----			-------------	--------	------			-------
+      32s		32s		1	{service-controller }			Normal		CreatingLoadBalancer	Creating load balancer
+      30s		30s		1	{service-controller }			Normal		CreatedLoadBalancer	Created load balancer
 
 
 So as you can see, Kubernetes created an AWS Load Balancer for us and it's associated
 to this service. The endpoint is in the `LoadBalancer Ingress` field and my case
-corresponds to `a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com`.
+corresponds to `a333dae17845a11e6b47b06103f11903-585648094.us-west-2.elb.amazonaws.com`.
+
+We also can describe our deployment to see if our replicas are available:
+
+    $ kubectl describe deployment webapp
+
+Output:
+
+    Name:                  webapp
+    Namespace:             default
+    CreationTimestamp:     Mon, 26 Sep 2016 23:29:22 -0300
+    Labels:                app=webapp
+    Selector:              app=webapp,tier=frontend
+    Replicas:              3 updated | 3 total | 3 available | 0 unavailable
+    StrategyType:          RollingUpdate
+    MinReadySeconds:       0
+    RollingUpdateStrategy: 1 max unavailable, 1 max surge
+    OldReplicaSets:        <none>
+    NewReplicaSet:         webapp-1367336656 (3/3 replicas created)
+    Events:
+      FirstSeen	LastSeen	Count	From				SubobjectPath	Type		Reason			Message
+      ---------	--------	-----	----				-------------	--------	------			-------
+      2m		2m		1	{deployment-controller }			Normal		ScalingReplicaSet	Scaled up replica set webapp-1367336656 to 3
+
+There you see we have actually 3 pods running our application. The Load Balancer
+associated to the service, will be balancing requests among this three replicas.
+This integration will AWS is pretty good. We just had to put the `LoadBalancer`
+type and Kubernetes automatically will be create that resource in our account.
+Keep in mind that this kind of integration is currently possible with only
+a couple of cloud providers. Currently the best integrations are with Amazon AWS
+and Google GCE.
 
 You'll have to wait for a few seconds for that endpoint to be alive.
 Once it's ready you can use the cURL post command to test it:
 
-    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com/articles
+    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://a333dae17845a11e6b47b06103f11903-585648094.us-west-2.elb.amazonaws.com/articles
 
 Output:
 
-    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-24T21:56:47.998Z","updated_at":"2016-07-24T21:56:47.998Z"}%
+    {"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-09-27T02:36:57.972Z","updated_at":"2016-09-27T02:36:57.972Z"}%
 
-So we have successfully deployed our Rails API in a Kubernetes cluster. Now
+Great!, The endpoint is working correctly.
+
+We have successfully deployed our Rails API in a Kubernetes cluster. Now
 we are going to dig into more advanced topics such as Volumes for persisting data,
-healthy check endpoints and running deployment updates to our application.
+and running deployment updates to our application.
 
 ## Adding persistence
 
