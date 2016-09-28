@@ -1515,7 +1515,7 @@ And add:
 
     # run the updated tmp job in the cluster and then delete the file
     kubectl create -f setup-job.yaml.tmp &&
-      rm migrate.yaml.tmp
+      rm setup-job.yaml.tmp
 
 And that's it! Now if you want to make changes to your code and deploy a new version, you just
 have to commit your changes and the just run `deploy/push.sh`. If you want run migrations, you can
