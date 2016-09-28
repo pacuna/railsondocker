@@ -1,24 +1,36 @@
 # Continuous Integration (CI)
 
 In this chapter I'll show how you can automate the entire deployment process
-using Jenkins. Our final goal is to be able to update our application
-by pushing to some Git branch.
+using Jenkins for both platforms, Kubernetes and ECS.
+Our final goal is to be able to update our application by pushing to some Git branch.
 
-Out desired workflow can be summarize in:
+A typical CI workflow when working with containers can be summarize in:
 
 - A change is pushed to the application repository on GitHub
-- A service hook tells Jenkins a new version is available
-- Jenkins pulls the latests changes from GitHub
-- Jenkins builds a new Docker image with this new version
-- Jenkins pushes that image to your DockerHub account
-- Jenkins updates the deployment files with this new image version
-- Jenkins applies the changes by making calls to the cluster's API
+- A service hook tells the CI server a new version is available
+- The CI server pulls the latest changes from GitHub
+- The CI server builds a new Docker image with this new version
+- The CI server pushes that image to your DockerHub account
+- The CI server updates the necessary deployment files to use this new image version
+- The CI server applies the changes by making calls to the framework's API.
 
 Those steps are basically what we have been doing manually until now, so it shouldn't
 be so hard to automate them. Although, a big difference is that our current machine is
 completely configured to interact with all those difference services. So
-the main difficulty with this pipeline will be to configure the Jenkins server
-so it can connect to all the different service accounts.
+the main difficulty with this pipeline will be to configure the CI server
+so it can connect to all the different services.
+
+We'll use Jenkins for our CI server, mainly because is highly configurable and
+it has very good support to work with tools like Docker and Github.
+
+For Kubernetes, we'll have to install the `kubectl` tool and configure the proper cluster
+credentials, so it can interact with our cluster. Since we already have a couple
+of scripts that automate our main tasks, it'll be easy to build a new project
+to accomplish this.
+
+For ECS we'll only need to configure the AWS CLI with our credentials, same way
+we did on our local machine. We also scripts that automate our tasks, so this is also
+going to be very straightforward.
 
 Let's start by installing Jenkins on a new machine.
 
