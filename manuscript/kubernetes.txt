@@ -1330,20 +1330,18 @@ for a search engine like Elasticsearch or a different database like MySQL or Mon
 ## Updating the application
 
 One of the cool features of deployments in Kubernetes, is that you can
-run updates very easily on your application. We only need to create the new version
-of the image we want to deploy, and then update our deployment template.
-Then with just one command we can have a new version running.
+run updates very easily. You only need to create the new version
+of the image you want to deploy, and then update the respective deployment templates.
+After that  you can have a new version running with just one command.
 
-Let's try that now.
-
-We are going to add a new field to our articles table. This would require apply migrations, so we also
-going to have to run our setup container before the update. Don't worry, once we
+We are going to add a new field to our articles table. This will require to apply migrations, so we also
+have to run the setup container before the update. Don't worry, once we
 start to use jenkins for our deployments, everything will be automatic. But for now
-let just stay with the `kubectl` commands.
+let just stay with the `kubectl` commands and some bash scripts.
 
 Let's add the new field in our Rails application:
 
-    $ rails g migration AddSlugToArticles slug:string
+    $ docker-compose run --rm webapp bin/rails g migration AddSlugToArticles slug:string
 
 Let's also generate this slug automatically before the record
 gets saved in the articles#create action:
@@ -1359,66 +1357,170 @@ gets saved in the articles#create action:
         end
       end
 
-
 OK, I'm pretty sure that's going to work. Let's rebuild the image and push it
-to DockerHub.
+to DockerHub. Let's commit our changes so we have a new commit hash to tag
+the Docker image and then use our push script:
 
-    $ docker build -t username/articles:v_2 .
-    $ docker push username/articles:v_2
+    $ git add -A
+    $ git commit -m 'add slug field to articles'
+    $ ./push.sh
 
-Update the image version in both the `setup-job` template and the
-articles-deployment template:
+Now that we updated the image, we can change the tag in both the `setup-job` template and the
+webapp-deployment templates to our latest commit hash:
 
-    image: username/articles:v_2
+    $ git rev-parse --short HEAD
+    d15587c
+
+And change the respective line for each file:
+
+    image: pacuna/webapp:d15587c
 
 Now, let's rerun our setup Job so the migrations are applied:
 
-    $ kubectl delete -f kube/production/setup-job.yaml
-    $ kubectl create -f kube/production/setup-job.yaml
+    $ kubectl delete jobs/setup
+    $ kubectl create -f kube/jobs/setup-job.yaml
 
 Check the logs:
 
     $ pods=$(kubectl get pods --selector=job-name=setup --output=jsonpath={.items..metadata.name})
-    $ echo $pods
+    $ kubectl logs $pods
 
 Output:
 
     Waiting PostgreSQL to start on 5432...
     PostgreSQL started
-    == 20160725010251 AddSlugToArticles: migrating ================================
+    D, [2016-09-28T03:16:05.360263 #6] DEBUG -- :    (1.0ms)  SELECT pg_try_advisory_lock(3863469888790475145);
+    D, [2016-09-28T03:16:05.369135 #6] DEBUG -- :   ActiveRecord::SchemaMigration Load (1.8ms)  SELECT "schema_migrations".* FROM "schema_migrations"
+    I, [2016-09-28T03:16:05.374952 #6]  INFO -- : Migrating to AddSlugToArticles (20160928030155)
+    D, [2016-09-28T03:16:05.376440 #6] DEBUG -- :    (0.1ms)  BEGIN
+    == 20160928030155 AddSlugToArticles: migrating ================================
     -- add_column(:articles, :slug, :string)
-       -> 0.0048s
-    == 20160725010251 AddSlugToArticles: migrated (0.0050s) =======================
+    D, [2016-09-28T03:16:05.385134 #6] DEBUG -- :    (8.2ms)  ALTER TABLE "articles" ADD "slug" character varying
+       -> 0.0085s
+    == 20160928030155 AddSlugToArticles: migrated (0.0087s) =======================
 
-And now for update our deployment we can run:
+    D, [2016-09-28T03:16:05.388399 #6] DEBUG -- :   SQL (0.3ms)  INSERT INTO "schema_migrations" ("version") VALUES ($1) RETURNING "version"  [["version", "20160928030155"]]
+    D, [2016-09-28T03:16:05.390099 #6] DEBUG -- :    (1.4ms)  COMMIT
+    D, [2016-09-28T03:16:05.395324 #6] DEBUG -- :   ActiveRecord::InternalMetadata Load (1.7ms)  SELECT  "ar_internal_metadata".* FROM "ar_internal_metadata" WHERE "ar_internal_metadata"."key" = $1 LIMIT $2  [["key", :environment], ["LIMIT", 1]]
+    D, [2016-09-28T03:16:05.398654 #6] DEBUG -- :    (0.1ms)  BEGIN
+    D, [2016-09-28T03:16:05.399649 #6] DEBUG -- :    (0.1ms)  COMMIT
+    D, [2016-09-28T03:16:05.400064 #6] DEBUG -- :    (0.2ms)  SELECT pg_advisory_unlock(3863469888790475145)
 
-    $ kubectl apply -f kube/production/articles-deployment.yaml
+So it worked correctly. You can see the new migration ran correctly.
+
+And now to update our deployment we can run:
+
+    $ kubectl apply -f kube/deployments/webapp-deployment.yaml
 
 Output:
 
-    service "articles" configured
-    deployment "articles" configured
+    service "webapp" configured
+    deployment "webapp" configured
+
+The `apply` command will check the differences between the current deployment and the 
+passed template and it'll update the correspondent objects. In our case, the container
+changed so it has to update the pods. This command will be very helpful for automate
+this task, since we just need to replace the image tag with the new version and the
+run the command.
 
 Wait for a second for the deployment to get updated and let's try to create a new
 article:
 
-    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my second article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://a8d834d4951e811e6a57306e4b278ad1-1983639296.us-west-2.elb.amazonaws.com/articles
+    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"my second article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit..."}' http://a333dae17845a11e6b47b06103f11903-585648094.us-west-2.elb.amazonaws.com/articles
 
 Output:
 
-    {"id":2,"title":"my second article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-07-25T01:35:40.113Z","updated_at":"2016-07-25T01:35:40.113Z","slug":"my-second-article"}%
+    {"id":34,"title":"my second article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-09-28T03:20:37.427Z","updated_at":"2016-09-28T03:20:37.427Z","slug":"my-second-article"}%
 
-The slug was generated correctly.
+The slug was generated correctly, which means our migration was correctly applied and also
+the code added to the articles controller is working.
 
 We just made our first real deployment to our application. This new concept
 of deployments allows us to run updates to our software very easily. You only need
 to generate a new image, and update your current deployment by keeping it's metadata
 and the using the `apply command`. Then Kubernetes will update the pods, replica sets
-and make sure the service can route the requests to the correct pods.
+and it'll make sure the service can route the requests to the correct pods.
 
 In the next section we'll see how to automate this entire process
-with a single operation. For that we'll need to install Jenkins with a couple
-of plugins.
+from your local environment. Although this could be a very good stopping point for
+most of the applications, we want to go further and build a solid Continuous Integration pipeline
+with Jenkins. But first, let's work on some scripts for automating the migrations
+and the deployments.
+
+## Automation scripts
+
+Automating the deployment is actually pretty easy. We just have to combine our
+current push.sh script with a new command that's going to set a new image in our current
+deployment. This command works in the following way:
+
+    $ kubectl set image deployment my-deployment container=image:new-tag
+
+As you can, we only need the name of our deployment, the container we want to update, and
+the new image the container should be built from. Normally this would be the same original image 
+but with a different tag. In our case the latest commit hash.
+
+Let's create a new folder for this new deployment scripts and move the push.sh script to it:
+
+    $ mkdir deploy
+    $ mv push.sh deploy
+
+Now, edit the deploy/push.sh file and add the following, replacing of course
+with your DockerHub repository:
+
+    #!/bin/sh
+    set -x
+
+    LC=$(git rev-parse --short HEAD)
+    docker build -f Dockerfile -t pacuna/webapp:${LC} .
+    docker push pacuna/webapp:${LC}
+    kubectl set image deployment webapp webapp=pacuna/webapp:${LC}
+
+As you can see is almost the same push script but we added the `kubectl set` command
+to update our current deployment.
+
+For the migrate job it's a little bit more complicated. Currently there's not an easy
+way of updating a job image and then re-run it. We first have to delete the current job, then
+change the image in the Job template, and finally run it again.
+The first part is actually pretty ease, for deleting the job we can just use:
+
+    $ kubectl delete jobs/setup
+
+Then for replacing the image with the latest tag, which we know is going to be
+the latest commit, we can add a placeholder instead a real image tag in the file and
+then use a tool like `sed` to replace it with the real tag.
+Open the `kube/jobs/setup-job.yaml` and change the image to:
+
+    image: pacuna/webapp:LAST_COMMIT
+
+Then with `sed`, we can find that placeholder, create a new file where the placeholder
+is replaced with the latest commit, run the `kubectl apply` with that temp file, and finally
+delete it. Let's create the script and add those instructions:
+
+    $ touch deploy/migrate.sh
+    $ chmod +x deploy/migrate.sh
+
+And add:
+
+    #!/bin/sh
+    set -x
+
+    # get latest commit hash
+    LC=$(git rev-parse --short HEAD)
+
+    # delete current migrate job
+    kubectl delete jobs/setup || true
+
+    # replace LAST_COMMIT with latest commit hash output the result to a tmp file
+    sed "s/webapp:LAST_COMMIT/webapp:$LC/g" kube/jobs/setup-job.yaml > setup-job.yaml.tmp
+
+    # run the updated tmp job in the cluster and then delete the file
+    kubectl create -f setup-job.yaml.tmp &&
+      rm migrate.yaml.tmp
+
+And that's it! Now if you want to make changes to your code and deploy a new version, you just
+have to commit your changes and the just run `deploy/push.sh`. If you want run migrations, you can
+just run `deploy/migrate.sh`. You can even built another script that uses both for every
+deployment, which is what we will later do with Jenkins.
 
 # Continuous Integration (CI)
 
