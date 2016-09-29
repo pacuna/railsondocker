@@ -5,9 +5,8 @@
 Currently there are two ways of creating an ECS cluster. You can use
 the graphical interface from the AWS panel for ECS or you can make use
 of the [esc-cli](http://docs.aws.amazon.com/AmazonECS/latest/developerguide/ECS_CLI_reference.html)
-tool. We are going to focus on the latter for launching the cluster.
-
-By using any of these choices you'll get the same result which can be a little more
+tool. We are going to focus on the latter for launching our cluster.
+Any of these choices will give you the same result. Keep in mind that it can be a little more
 tedious if you decide to configure a cluster by yourself. You'll need to launch
 instances with initial user data, security groups among other configuration.
 
@@ -27,50 +26,56 @@ If you have the AWS CLI tool already configured, meaning you have your
 AWS access keys configured for the client, you can make use of the ecs-cli tool
 immediately. If not, you can follow the instructions provided [here](http://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html#cli-quick-configuration).
 
-
 ## Creating the cluster using the Amazon ECS CLI
 
-Before we launch the cluster, we'll need a key pair for access. You can
-use an existent key or create a new one with the following command (change the profile
-with yours or leave it blank if you're using the default profile):
+Before we launch the cluster, we'll need a key pair to access the nodes. You can
+use an existent key or create and save a new one with the following command:
 
-    $ aws ec2 --profile personal --region us-east-1 create-key-pair --key-name ecs --query 'KeyMaterial' --output text > ecs.pem
+    $ aws ec2 create-key-pair --key-name ecs-cluster-pem --query 'KeyMaterial' --output text > ecs-cluster-pem.pem
 
-Now we can use the configure command to add our future cluster information. This
-command will save the configuration in a file so we don't have to specify all the data
-when running future commands:
+Move that PEM to a safe place. You won't be able to download it again later.
 
-    $ ecs-cli configure --profile personal --region us-east-1 --cluster my-cluster
+Now we can use the `configure` command to configure and save our future cluster information. This
+command will create and save the configuration in a file so we don't have to specify all the data
+when running future commands. We only need to pass the name we want for our cluster:
+
+    $ ecs-cli configure --cluster ecs-cluster --region us-east-1
 
 Output:
 
-    INFO[0000] Saved ECS CLI configuration for cluster (my-cluster)
+    INFO[0000] Saved ECS CLI configuration for cluster (ecs-cluster)
 
-The configuration file is located at '~/.ecs/config'
-
+The configuration file is located at '~/.ecs/config'. If you inspect that file, you'll
+see that none of our AWS credentials are actually there. You could also have passed
+those tokens with the configure commands, and it would have been saved in the file. But since
+we already have our credentials configure to use the AWS CLI, the ECS CLI knows
+where to find the credentials when they aren't passed as arguments.
 
 Now that we have the configuration ready for the cluster, we can launch it along
-with some nodes. Let's use two t2.medium nodes. We only need to pass the keypair we
-just created and the number and size of the nodes:
+with some nodes. Let's use two `t2.medium` nodes. We only need to pass the keypair we
+created previously and the number and size of the nodes. ECS CLI will use the configuration
+saved to get our cluster information:
 
-    $ ecs-cli up --keypair ecs --capability-iam --size 2 --instance-type t2.medium
+    $ ecs-cli up --keypair ecs-cluster-pem --capability-iam --size 2 --instance-type t2.medium
 
 Output:
 
-    INFO[0002] Created cluster                               cluster=my-cluster
-    INFO[0004] Waiting for your cluster resources to be created
+    INFO[0002] Created cluster                               cluster=ecs-cluster
+    INFO[0003] Waiting for your cluster resources to be created
     INFO[0004] Cloudformation stack status                   stackStatus=CREATE_IN_PROGRESS
     INFO[0066] Cloudformation stack status                   stackStatus=CREATE_IN_PROGRESS
     INFO[0128] Cloudformation stack status                   stackStatus=CREATE_IN_PROGRESS
     INFO[0190] Cloudformation stack status                   stackStatus=CREATE_IN_PROGRESS
-    INFO[0252] Cloudformation stack status                   stackStatus=CREATE_IN_PROGRESS
+    INFO[0251] Cloudformation stack status                   stackStatus=CREATE_IN_PROGRESS
 
 This can take a while, and even after the command finishes, you'll have to wait
-the instances to be initialized so they can join the cluster.
+the instances to be initialized so they can join the cluster. This command besides
+launching nodes for the cluster, it'll create a VPC and all the security resources
+for keeping our cluster safe.
 
-Let's use the AWS CLI to ask about our cluster:
+Let's use the AWS CLI to ask about the clusters in our account:
 
-    $ aws ecs --profile personal --region us-east-1 describe-clusters
+    $ aws ecs --region us-east-1 describe-clusters
 
 Output:
 
@@ -90,120 +95,205 @@ Output:
         ]
     }
 
-There you can see the cluster I just launched was actually created but it doesn't have
-any instance instance registered yet. That's because those are still initializing.
+There you can see the cluster we just launched was actually created but it doesn't have
+any instances registered yet. That's because these are still initializing.
 
 Wait for a few minutes, and let's run another command in order to get information about
 that specific cluster we just launched:
 
-    $ aws ecs --profile personal --region us-east-1 describe-clusters --clusters my-cluster
+    $ aws ecs --region us-east-1 describe-clusters --clusters ecs-cluster
 
 Output:
 
     {
-        "failures": [],
         "clusters": [
             {
-                "clusterName": "my-cluster",
                 "status": "ACTIVE",
-                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/my-cluster",
+                "clusterName": "ecs-cluster",
                 "registeredContainerInstancesCount": 2,
-                "runningTasksCount": 0,
                 "pendingTasksCount": 0,
-                "activeServicesCount": 0
+                "runningTasksCount": 0,
+                "activeServicesCount": 0,
+                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/ecs-cluster"
             }
-        ]
+        ],
+        "failures": []
     }
 
 OK, that's better. Now you can see the cluster has a status of active and it has
-two instances registered.
+two instances registered. You also can other information about the tasks and services
+in our cluster. Don't worry about that yet. We'll see that later when we start
+to run containers in the cluster.
 
 ## DB configuration
 
-AWS ECS doesn't currently has native support for DNS discovery like Kubernetes
-has.
-
+AWS ECS doesn't currently have native support for DNS discovery like Kubernetes has.
 This is a big issue when you want to run a lot of different services in the cluster
 and even bigger if lots of those service need to be non-public. This is because
 the typical form for service discovery in ECS is via Load Balancer. So every time
 you create a service that you need to be discoverable by other services, you
 need to create a Load Balancer for it. This can be expensive if you're running
-a micro-service arquitecture.
+a micro-service architecture. In kubernetes this problem is solved via DNS discovery.
+You can launch services like databases without exposing them to the internet. They will
+have an internal IP address and also an alias so the other services can communicate
+with them.
 
 Another problem with ECS is that there's no support for associating cloud storage
 to the instances. You can mount volumes from the containers to the instance, but
 that doesn't work if your container will be jumping from one instance to another, which
-is what typically occurs during deployments.
+is what typically occurs during deployments. 
+Again, Kubernetes has support for persistence by integrating itself with
+cloud providers native storage objects, like EBS in the case of AWS. That storage
+will always be external to the cluster and the nodes, so it doesn't matter if a new container
+is launched on a different node that it was before, because the data lives outside of
+the cluster.
 
-This two reasons are why I recommend you to not use ECS for running containers
-that need persistence.
+This two reasons are why I recommend you to not use ECS to run containers
+that need persistence. This goes for things like Databases, Search engines, cache storages,
+etc.
 
-Luckily for us, when don't have to mount a server with a database engine
-and configure the whole thing, since AWS has a very good service call RDS.
+Luckily for us, we don't have to mount a server with a database engine
+and configure the whole thing by ourselves, since AWS has a very good database-as-a-service software called RDS.
 This service will allow us to run a new database server already configured
 and that we can use to connect to our web application that will be running
 on a container.
 
 ### Creating a RDS resource
 
-(show how to get the vpc id of the cluster along the subnet ids)
+The only complexity in creating a RDS resource, is that we have to make sure to
+create it inside of the same VPC that the ECS CLI created for our cluster. That's
+a much more secure approach that just launch a server open to the internet. We want
+to run a database that's only accessible from the same VPC.
 
-- Creating a DB subnet group
+First, let's collect some data that we may need during for the execution of the following
+commands. These are our VPC id and the id of one of the VPC's subnets.
 
-    $ aws rds create-db-subnet-group --db-subnet-group-name postgres-subnet \
-    --subnet-ids subnet-dd3ecef0 subnet-8c8b7dd7 --profile personal \
-    --region us-east-1 --db-subnet-group-description "Subnet for PostgreSQL"
+Let's describe all of our current VPC ids and the first tag:
 
+    $ aws ec2 describe-vpcs --region us-east-1 --query="Vpcs[*].{ID:VpcId,tags:Tags[0]}"
+
+Output:
+
+    [
+        {
+            "ID": "vpc-e61cec82",
+            "tags": null
+        },
+        {
+            "ID": "vpc-a0e9c0c7",
+            "tags": {
+                "Value": "amazon-ecs-cli-setup-ecs-cluster",
+                "Key": "aws:cloudformation:stack-name"
+            }
+        }
+    ]
+
+You can see I have two VPCs and obviously the second one is the one that was
+created for our cluster. It has a tag with a value that contains the name of the cluster.
+The ID for this VPC is `vpc-a0e9c0c7`. Remember to save yours.
+
+Now we can get the subnet ids for this VPC with the following command:
+
+    $ aws ec2 describe-subnets --filters "Name=vpc-id,Values=vpc-a0e9c0c7" --query="Subnets[*].SubnetId"
+
+Output:
+
+    [
+        "subnet-3a09f717",
+        "subnet-e0906cbb"
+    ]
+
+You should also save the values you got for your VPC.
+
+Finally, we also want the security group id that ECS CLI assigned to our VPC.
+We want to launch the DB server with this same security group so the communication
+can be configured more easily.
+Let's get our security groups and filter by our VPC ID:
+
+    $ aws ec2 describe-security-groups --filters="Name=vpc-id,Values=vpc-a0e9c0c7" --query="SecurityGroups[*].{Description:Description,ID:GroupId}"
+
+Output:
+
+    [
+        {
+            "Description": "ECS Allowed Ports",
+            "ID": "sg-bbe6b3c1"
+        },
+        {
+            "Description": "default VPC security group",
+            "ID": "sg-efe6b395"
+        }
+    ]
+
+Right now I have two security groups for that VPC, but you can see one that
+says "ECS Allowed Porst". That's the one I want to use for the database.
+Save that security group id for our following command.
+
+All of these identifiers are needed to create our RDS in our VPC.
+In fact, before launching the server, we have to create a DB Subnet Group. This group
+is just a collection of subnets designated for the RDS DB instance in our VPC.
+We got our subnet ids because they're necessary to create this DB subnet group.
+
+In the following command, replace the subnet ids with the ones you got previously.
+You can leave the rest of argument just like that:
+
+    $ aws rds create-db-subnet-group --db-subnet-group-name webapp-postgres-subnet \
+    --subnet-ids subnet-3a09f717 subnet-e0906cbb  --db-subnet-group-description "Subnet for PostgreSQL" \
 
 Output:
 
     {
         "DBSubnetGroup": {
-            "VpcId": "vpc-934161f4",
-            "DBSubnetGroupDescription": "Subnet for PostgreSQL",
             "Subnets": [
                 {
                     "SubnetStatus": "Active",
-                    "SubnetIdentifier": "subnet-dd3ecef0",
+                    "SubnetIdentifier": "subnet-3a09f717",
                     "SubnetAvailabilityZone": {
                         "Name": "us-east-1c"
                     }
                 },
                 {
                     "SubnetStatus": "Active",
-                    "SubnetIdentifier": "subnet-8c8b7dd7",
+                    "SubnetIdentifier": "subnet-e0906cbb",
                     "SubnetAvailabilityZone": {
                         "Name": "us-east-1a"
                     }
                 }
             ],
+            "VpcId": "vpc-a0e9c0c7",
+            "DBSubnetGroupDescription": "Subnet for PostgreSQL",
             "SubnetGroupStatus": "Complete",
-            "DBSubnetGroupName": "postgres-subnet",
-            "DBSubnetGroupArn": "arn:aws:rds:us-east-1:586421825777:subgrp:postgres-subnet"
+            "DBSubnetGroupArn": "arn:aws:rds:us-east-1:586421825777:subgrp:webapp-postgres-subnet",
+            "DBSubnetGroupName": "webapp-postgres-subnet"
         }
     }
 
 
-Now we can use that db subnet group to create our database:
+The following command will create a DB server for us.
+Here we are going to create a database named `webapp_production`, with a master
+username `webapp` and a password `mysecretpassword`. We are also indicating the
+size of the server and the size of the associated storage. We also have to indicate
+the engine we want for our Database. In our case we are using postgres.
+Finally, we are passing the identifier of the previously created Db Subnet Group and the VPC
+security group id so this server is created in the same VPC where our cluster is:
 
-    $ aws rds create-db-instance --region us-east-1 --db-name articles --db-instance-identifier articles-db \
+    $ aws rds create-db-instance --db-name webapp_production --db-instance-identifier webapp-postgres \
     --allocated-storage 20 --db-instance-class db.t2.medium --engine postgres \
-    --master-username articles --master-user-password mysecretpassword --db-subnet-group-name postgres-subnet \
-    --vpc-security-group-ids sg-daf48fa0
-
+    --master-username webapp --master-user-password mysecretpassword --db-subnet-group-name webapp-postgres-subnet \
+    --vpc-security-group-id sg-bbe6b3c1
 
 Output:
 
     {
         "DBInstance": {
             "PubliclyAccessible": false,
-            "MasterUsername": "articles",
+            "MasterUsername": "webapp",
             "MonitoringInterval": 0,
             "LicenseModel": "postgresql-license",
             "VpcSecurityGroups": [
                 {
                     "Status": "active",
-                    "VpcSecurityGroupId": "sg-daf48fa0"
+                    "VpcSecurityGroupId": "sg-bbe6b3c1"
                 }
             ],
             "CopyTagsToSnapshot": false,
@@ -226,51 +316,51 @@ Output:
                 }
             ],
             "AutoMinorVersionUpgrade": true,
-            "PreferredBackupWindow": "05:52-06:22",
+            "PreferredBackupWindow": "04:05-04:35",
             "DBSubnetGroup": {
                 "Subnets": [
                     {
                         "SubnetStatus": "Active",
-                        "SubnetIdentifier": "subnet-dd3ecef0",
+                        "SubnetIdentifier": "subnet-3a09f717",
                         "SubnetAvailabilityZone": {
                             "Name": "us-east-1c"
                         }
                     },
                     {
                         "SubnetStatus": "Active",
-                        "SubnetIdentifier": "subnet-8c8b7dd7",
+                        "SubnetIdentifier": "subnet-e0906cbb",
                         "SubnetAvailabilityZone": {
                             "Name": "us-east-1a"
                         }
                     }
                 ],
-                "DBSubnetGroupName": "postgres-subnet",
-                "VpcId": "vpc-934161f4",
+                "DBSubnetGroupName": "webapp-postgres-subnet",
+                "VpcId": "vpc-a0e9c0c7",
                 "DBSubnetGroupDescription": "Subnet for PostgreSQL",
                 "SubnetGroupStatus": "Complete"
             },
             "ReadReplicaDBInstanceIdentifiers": [],
             "AllocatedStorage": 20,
+            "DBInstanceArn": "arn:aws:rds:us-east-1:586421825777:db:webapp-postgres",
             "BackupRetentionPeriod": 1,
-            "DBName": "articles",
-            "PreferredMaintenanceWindow": "sat:06:41-sat:07:11",
+            "DBName": "webapp_production",
+            "PreferredMaintenanceWindow": "tue:06:28-tue:06:58",
             "DBInstanceStatus": "creating",
             "EngineVersion": "9.5.2",
             "DomainMemberships": [],
             "StorageType": "standard",
-            "DbiResourceId": "db-JD5W6CCXXDLHIPJMWSMWWAFKSI",
+            "DbiResourceId": "db-3QR6VRBU4OIDKYCA73XFNINCH4",
             "CACertificateIdentifier": "rds-ca-2015",
             "StorageEncrypted": false,
             "DBInstanceClass": "db.t2.medium",
             "DbInstancePort": 0,
-            "DBInstanceIdentifier": "articles-db"
+            "DBInstanceIdentifier": "webapp-postgres"
         }
     }
 
-
 You can query the API to get the current DB Instance status with the following command:
 
-    $ aws rds describe-db-instances --db-instance-identifier articles-db --query 'DBInstances[*].{Status:DBInstanceStatus}'
+    $ aws rds describe-db-instances --db-instance-identifier webapp-postgres --query 'DBInstances[*].{Status:DBInstanceStatus}'
 
     [
         {
@@ -288,95 +378,85 @@ Wait for a few minutes until the DB is ready and the status becomes available:
 
 Once the server is available, we can query the endpoint AWS gave to the DB:
 
-    $ aws rds describe-db-instances --db-instance-identifier articles-db --query 'DBInstances[*].{URL:Endpoint.Address}'
+    $ aws rds describe-db-instances --db-instance-identifier webapp-postgres --query 'DBInstances[*].{URL:Endpoint.Address}'
 
 Output:
 
     [
         {
-            "URL": "articles-db.caxygd3nh0bk.us-east-1.rds.amazonaws.com"
+            "URL": "webapp-postgres.caxygd3nh0bk.us-east-1.rds.amazonaws.com"
         }
     ]
 
 Great! Now we have our database ready. But before configure it in our application we have
 to do one thing.
-Right now we are using the cluster's security group. Currently this group
+Right now we are using the cluster's VPC security group. Currently this group
 should only have an inbound rule for the port 80. What we want is to allow
-free traffic between elements that live inside this VPC.
+all traffic between elements that live inside this VPC.
 
-First, let's list our existent security groups with their names and ids so we can
-find the one that ECS created for us:
+We can create a custom rule for this with the following command. Remember to change
+the id with the security group id you got previously:
 
-    $ aws ec2 describe-security-groups --query="SecurityGroups[*].{Name:GroupName,ID:GroupId}"
-
-Output:
-
-    [
-        {
-            "Name": "default",
-            "ID": "sg-0132736a"
-        },
-        {
-            "Name": "amazon-ecs-cli-setup-my-cluster-EcsSecurityGroup-197TU7Y7R76ZV",
-            "ID": "sg-daf48fa0"
-        },
-        {
-            "Name": "default",
-            "ID": "sg-3cf48f46"
-        },
-        {
-            "Name": "default",
-            "ID": "sg-5291fa35"
-        }
-    ]
-
-As you can see, I have a couple of duplicated default security groups but there
-in between you can see the cluster security group and you should see it two in
-your output. Let's grab that id and create a new ingress rule that's going to
-allow all traffic from inside that same group.
-
-We can create a custom rule for this with the following command:
-
-    $ aws ec2 authorize-security-group-ingress --group-id sg-daf48fa0 --protocol all --port all --source-group sg-daf48fa0
+    $ aws ec2 authorize-security-group-ingress --group-id sg-bbe6b3c1 --protocol all --port all --source-group sg-bbe6b3c1
 
 Let's also add a rule for accessing the nodes via ssh from anywhere. This can be useful
 for debugging and diagnose container errors:
 
-    $ aws ec2 authorize-security-group-ingress --group-id sg-daf48fa0 --protocol tcp --port 22 --cidr 0.0.0.0/0
+    $ aws ec2 authorize-security-group-ingress --group-id sg-bbe6b3c1 --protocol tcp --port 22 --cidr 0.0.0.0/0
 
+Now our nodes should be able to access this database. You won't be able to connect
+to this database from outside the cluster. That could be an inconvenient if you
+like to inspect your databases using a GUI, but it's also a very strong
+security measure to prevent attacks.
 
 Now we can configure the production database credentials in our application:
 
     production:
       <<: *default
-      host: articles-db.caxygd3nh0bk.us-east-1.rds.amazonaws.com
-      database: articles
-      username: articles
+      host: webapp-postgres.caxygd3nh0bk.us-east-1.rds.amazonaws.com
+      database: webapp_production
+      username: webapp
       password: mysecretpassword
 
-Let's rebuild our Docker image and add a tag for ECS:
+Let's rebuild our Docker image and add a tag for ECS using our latest commit:
 
-    $ docker build -t pacuna/articles:ecs-v_0 .
+    $ git add .
+    $ git commit -m 'add database credentials for rds'
+    $ LC=$(git rev-parse --short HEAD)
+    $ docker build -t pacuna/webapp:ecs-${LC} .
 
 And push it to DockerHub:
 
-    $ docker push pacuna/articles:ecs-v_0
+    $ docker push pacuna/webapp:ecs-${LC}
 
-Once it finishes, let's create an skeleton task definition for our application with the following command:
+At that's it for the configuration. Now it's time to build the templates
+to deploy the application in the cluster.
 
-    $ aws ecs register-task-definition --generate-cli-skeleton > articles.json
+## Creating the task definition
+
+If you follow the instructions to deploy with Kubernetes, you saw that we created
+an independent `kube` folder to keep the Kubernetes templates. Now let's create a folder
+to keep the ECS templates. Run the following commands in the root of the project:
+
+    $ mkdir ecs
+    $ mkdir ecs/task-definitions
+
+Now we can create an skeleton task definition for our application with the following command:
+
+    $ aws ecs register-task-definition --generate-cli-skeleton > ecs/task-definitions/webapp.json
 
 That's going to create an empty task definition we can fill out with our data.
 
-Let's clean up the file a little bit and the information for our first task definition.
+Let's clean up the file a little bit and add the information for our first task definition.
+
 Open the file and replace its content with:
 
     {
-        "family": "articles",
+        "family": "webapp",
         "containerDefinitions": [
             {
-                "name": "articles",
-                "image": "pacuna/articles:ecs-v_0",
+                "name": "webapp",
+                "image": "pacuna/webapp:ecs-0eddbb1",
                 "cpu": 500,
                 "memory": 500,
                 "portMappings": [
@@ -397,18 +477,21 @@ Open the file and replace its content with:
         ]
     }
 
+For the image, you should use the Docker image we created after we setted up
+the database credentials. It should be `ecs-` followed by the last commit.
+
 Now we can register this file with:
 
-    $ aws ecs register-task-definition --cli-input-json file://ecs/task-definitions/articles.json
+    $ aws ecs register-task-definition --cli-input-json file://ecs/task-definitions/webapp.json
 
 Output:
 
     {
         "taskDefinition": {
             "status": "ACTIVE",
-            "family": "articles",
+            "family": "webapp",
             "volumes": [],
-            "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
+            "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/webapp:1",
             "containerDefinitions": [
                 {
                     "environment": [
@@ -417,9 +500,9 @@ Output:
                             "value": "production"
                         }
                     ],
-                    "name": "articles",
+                    "name": "webapp",
                     "mountPoints": [],
-                    "image": "pacuna/articles:ecs-v_0",
+                    "image": "pacuna/webapp:ecs-0eddbb1",
                     "cpu": 500,
                     "portMappings": [
                         {
@@ -433,18 +516,17 @@ Output:
                     "volumesFrom": []
                 }
             ],
-            "revision": 5
+            "revision": 1
         }
     }
 
-The importan part of the output is the family name which we declared in the json file,
+The important part of the output is the family name which we declared in the json file,
 and the revision number. Every time we modify a task definition we create a new
-revision. In this case I got revision 5 because I've been playing around with this
-task.
+revision. In this case I got revision 1 because it's the first I register this task.
 
 We can run this task with:
 
-    $ aws ecs run-task --task-definition articles:5 --cluster my-cluster
+    $ aws ecs run-task --task-definition webapp:1 --cluster ecs-cluster
 
 Output:
 
@@ -452,48 +534,48 @@ Output:
         "failures": [],
         "tasks": [
             {
-                "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+                "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c",
                 "overrides": {
                     "containerOverrides": [
                         {
-                            "name": "articles"
+                            "name": "webapp"
                         }
                     ]
                 },
                 "lastStatus": "PENDING",
-                "containerInstanceArn": "arn:aws:ecs:us-east-1:586421825777:container-instance/02a39ed9-9364-4449-969d-e19762013a24",
-                "createdAt": 1474745245.239,
-                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/my-cluster",
+                "containerInstanceArn": "arn:aws:ecs:us-east-1:586421825777:container-instance/edd5e9a7-7f29-43a6-98c1-b7d7dd912cd2",
+                "createdAt": 1475113475.222,
+                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/ecs-cluster",
                 "desiredStatus": "RUNNING",
-                "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
+                "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/webapp:1",
                 "containers": [
                     {
-                        "containerArn": "arn:aws:ecs:us-east-1:586421825777:container/3fb816c9-a9b2-400e-a104-4bb99e20ad84",
-                        "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+                        "containerArn": "arn:aws:ecs:us-east-1:586421825777:container/2d4aa3c7-48d7-40c1-9b30-8938566c2b0c",
+                        "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c",
                         "lastStatus": "PENDING",
-                        "name": "articles"
+                        "name": "webapp"
                     }
                 ]
             }
         ]
     }
 
-That command is going to run our container somewhere in the cluster. If we want
+That command is going to run the container declared in the task definition somewhere in the cluster. If we want
 to get more info about our task, first we have to get its identifier:
 
-    $ aws ecs list-tasks --cluster my-cluster
+    $ aws ecs list-tasks --cluster ecs-cluster
 
 Output:
 
     {
         "taskArns": [
-            "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82"
+            "arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c"
         ]
     }
 
 Now we can use that identifier in order we what we want:
 
-    $ aws ecs describe-tasks --tasks arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82 --cluster my-cluster
+    $ aws ecs describe-tasks --tasks arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c --cluster ecs-cluster
 
 Output:
 
@@ -501,27 +583,27 @@ Output:
         "failures": [],
         "tasks": [
             {
-                "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+                "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c",
                 "overrides": {
                     "containerOverrides": [
                         {
-                            "name": "articles"
+                            "name": "webapp"
                         }
                     ]
                 },
                 "lastStatus": "RUNNING",
-                "containerInstanceArn": "arn:aws:ecs:us-east-1:586421825777:container-instance/02a39ed9-9364-4449-969d-e19762013a24",
-                "createdAt": 1474745245.239,
-                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/my-cluster",
-                "startedAt": 1474745246.911,
+                "containerInstanceArn": "arn:aws:ecs:us-east-1:586421825777:container-instance/edd5e9a7-7f29-43a6-98c1-b7d7dd912cd2",
+                "createdAt": 1475113475.222,
+                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/ecs-cluster",
+                "startedAt": 1475113521.285,
                 "desiredStatus": "RUNNING",
-                "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
+                "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/webapp:1",
                 "containers": [
                     {
-                        "containerArn": "arn:aws:ecs:us-east-1:586421825777:container/3fb816c9-a9b2-400e-a104-4bb99e20ad84",
-                        "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+                        "containerArn": "arn:aws:ecs:us-east-1:586421825777:container/2d4aa3c7-48d7-40c1-9b30-8938566c2b0c",
+                        "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c",
                         "lastStatus": "RUNNING",
-                        "name": "articles",
+                        "name": "webapp",
                         "networkBindings": [
                             {
                                 "protocol": "tcp",
@@ -541,9 +623,9 @@ until the image gets pulled and the container starts.
 
 Now, we know our application is not going to work out of the box. We have our database
 created but we haven't run the migrations yet.
-In Kubernetes we used the concept of jobs for running this kind of stuff. In this case
+In Kubernetes we use the concept of jobs for running this kind of stuff. In this case
 we are going to run a task that's going to override a task definition. This means
-we can run this same task but with an override for its entrypoint, which is what we need.
+we can run this same task but overriding its entrypoint, which is what we need.
 
 Let's create a new json file that's going to contain the overrides for the migrations:
 
@@ -554,7 +636,7 @@ And add the following to it:
     {
       "containerOverrides": [
         {
-          "name": "articles",
+          "name": "webapp",
           "command": ["bin/rails", "db:migrate", "RAILS_ENV=production"],
           "environment": [
             {
@@ -567,11 +649,54 @@ And add the following to it:
     }
 
 As you can see, there's nothing crazy going on there. We are just setting a new
-entrypoint and making sure the environmental variables are kept.
+entrypoint and making sure the environmental variables are preserved.
 
 In order to run a task with this overrides we can run the following command:
 
-    $ aws ecs run-task --task-definition articles:5 --overrides file://ecs/task-definitions/migrate-overrides.json --cluster my-cluster
+    $ aws ecs run-task --task-definition webapp:1 --overrides file://ecs/task-definitions/migrate-overrides.json --cluster ecs-cluster
+
+Output:
+
+    {
+        "failures": [],
+        "tasks": [
+            {
+                "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/865d7bcc-55c3-4c2b-993f-4bbd32c1f63f",
+                "overrides": {
+                    "containerOverrides": [
+                        {
+                            "environment": [
+                                {
+                                    "name": "PASSENGER_APP_ENV",
+                                    "value": "production"
+                                }
+                            ],
+                            "command": [
+                                "bin/rails",
+                                "db:migrate",
+                                "RAILS_ENV=production"
+                            ],
+                            "name": "webapp"
+                        }
+                    ]
+                },
+                "lastStatus": "PENDING",
+                "containerInstanceArn": "arn:aws:ecs:us-east-1:586421825777:container-instance/931096f1-4e01-4baf-8cfc-73a80e5b1ead",
+                "createdAt": 1475113727.013,
+                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/ecs-cluster",
+                "desiredStatus": "RUNNING",
+                "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/webapp:1",
+                "containers": [
+                    {
+                        "containerArn": "arn:aws:ecs:us-east-1:586421825777:container/2b547545-1bed-483b-bb4a-dbc73e9de3ad",
+                        "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/865d7bcc-55c3-4c2b-993f-4bbd32c1f63f",
+                        "lastStatus": "PENDING",
+                        "name": "webapp"
+                    }
+                ]
+            }
+        ]
+    }
 
 That's going to take our same task definition, overrides its entrypoint so the migrations
 are executed, and then the task will be stopped.
@@ -585,39 +710,40 @@ This are the steps to get the IP address of the node that's running the task:
 
 1) Get our task identifier:
 
-    $ aws ecs list-tasks --cluster my-cluster
+    $ aws ecs list-tasks --cluster ecs-cluster
 
     {
         "taskArns": [
-            "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82"
+            "arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c"
         ]
     }
 
 2) Describe the task with that identifier filter by the container instance identifier:
 
-    $ aws ecs describe-tasks --tasks arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82 --cluster my-cluster --query="tasks[*].containerInstanceArn"
+    $ aws ecs describe-tasks --tasks arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c --cluster ecs-cluster --query="tasks[*].containerInstanceArn"
 
     [
-        "arn:aws:ecs:us-east-1:586421825777:container-instance/02a39ed9-9364-4449-969d-e19762013a24"
+        "arn:aws:ecs:us-east-1:586421825777:container-instance/edd5e9a7-7f29-43a6-98c1-b7d7dd912cd2"
     ]
 
 3) Using the instance identifier, get the instance id:
 
-    $ aws ecs describe-container-instances --container-instances arn:aws:ecs:us-east-1:586421825777:container-instance/02a39ed9-9364-4449-969d-e19762013a24 --query="containerInstances[*].ec2InstanceId" --cluster my-cluster
+    $ aws ecs describe-container-instances --container-instances arn:aws:ecs:us-east-1:586421825777:container-instance/edd5e9a7-7f29-43a6-98c1-b7d7dd912cd2 --query="containerInstances[*].ec2InstanceId" --cluster ecs-cluster
 
     [
-        "i-21762a10"
+        "i-69f4a17f"
     ]
 
 4) Using that id, get the IP address by using the EC2 API:
 
-    $ aws ec2 describe-instances --instance-ids i-21762a10 --query="Reservations[0].Instances[0].PublicIpAddress"
+    $ aws ec2 describe-instances --instance-ids i-69f4a17f --query="Reservations[0].Instances[0].PublicIpAddress"
 
-    "54.196.162.145"
+    "54.164.16.149"
 
-Now, let's CURL that ip address to see if it's actually responding:
+Now, we know that the container is mapping its port 80 to the port 80 of the host, so we can
+CURL that ip address in our of our endpoints to see if it's actually responding:
 
-    $ curl -I http://54.196.162.145/articles
+    $ curl -I http://54.164.16.149/articles
 
     HTTP/1.1 200 OK
     Content-Type: application/json; charset=utf-8
@@ -628,84 +754,81 @@ Now, let's CURL that ip address to see if it's actually responding:
     X-Frame-Options: SAMEORIGIN
     X-XSS-Protection: 1; mode=block
     X-Content-Type-Options: nosniff
-    X-Runtime: 0.002354
-    X-Request-Id: 2086674f-9d72-4d27-9519-e3a499c440e0
-    Date: Sat, 24 Sep 2016 19:57:55 GMT
+    X-Runtime: 0.011589
+    X-Request-Id: 049c50bd-4f6e-4170-956c-8a085750edb8
+    Date: Thu, 29 Sep 2016 01:51:54 GMT
     X-Powered-By: Phusion Passenger 5.0.29
     Server: nginx/1.10.1 + Phusion Passenger 5.0.29
 
 Great! Our application is up and running with no errors.
+
 In the next section we'll create a service that's going to keep our task alive
 24/7 and also create a Load Balancer so we can have a static address for our
 application.
 
 ## Creating a service for our application
 
-Like I mentioned before, one of the cool featured of ECS Services, is that
+Like I mentioned in the previous section, one of the cool features of ECS Services, is that
 you can attach a Load Balancer to them. This will allow us to update our
 service and task definitions during deployments while keeping the address
 of the service.
 
-We can create a Load Balancer in the VPC with (replace with your cluster
-vpc id):
+We can create a Load Balancer in the VPC with (replace with your cluster's
+security group id and a subnet id in your VPC):
 
-
-    $ aws elb create-load-balancer --load-balancer-name articles-load-balancer --listeners "Protocol=HTTP,LoadBalancerPort=80,InstanceProtocol=HTTP,InstancePort=80" --subnets subnet-dd3ecef0 --security-groups sg-daf48fa0
+    $ aws elb create-load-balancer --load-balancer-name webapp-load-balancer --listeners "Protocol=HTTP,LoadBalancerPort=80,InstanceProtocol=HTTP,InstancePort=80" --subnets subnet-3a09f717 --security-groups sg-bbe6b3c1
 
 Output:
 
     {
-        "DNSName": "articles-load-balancer-376855005.us-east-1.elb.amazonaws.com"
-        }
+        "DNSName": "webapp-load-balancer-1711291190.us-east-1.elb.amazonaws.com"
     }
 
 Now we can use that load balancer when creating the service.
 
-TODO: show how to get the subnet ids
-
-First, let's stop the tast that's running our application. For that, we'll need
+First, let's stop the task that's running our application. For that, we'll need
 its identifier:
 
-    $ aws ecs list-tasks --cluster my-cluster
+    $ aws ecs list-tasks --cluster ecs-cluster
 
 Output:
 
     {
         "taskArns": [
-            "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82"
+            "arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c"
         ]
     }
 
 And now we can run the stop-task command:
 
-    $ aws ecs stop-task --task arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82 --cluster my-cluster
+    $ aws ecs stop-task --task arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c --cluster ecs-cluster
 
 Output:
 
     {
         "task": {
-            "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+            "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c",
             "overrides": {
                 "containerOverrides": [
                     {
-                        "name": "articles"
+                        "name": "webapp"
                     }
                 ]
             },
             "lastStatus": "RUNNING",
-            "containerInstanceArn": "arn:aws:ecs:us-east-1:586421825777:container-instance/02a39ed9-9364-4449-969d-e19762013a24",
-            "createdAt": 1474745245.239,
-            "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/my-cluster",
-            "startedAt": 1474745246.911,
+            "containerInstanceArn": "arn:aws:ecs:us-east-1:586421825777:container-instance/edd5e9a7-7f29-43a6-98c1-b7d7dd912cd2",
+            "createdAt": 1475113475.222,
+            "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/ecs-cluster",
+            "startedAt": 1475113521.285,
             "desiredStatus": "STOPPED",
             "stoppedReason": "Task stopped by user",
-            "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
+            "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/webapp:1",
             "containers": [
                 {
-                    "containerArn": "arn:aws:ecs:us-east-1:586421825777:container/3fb816c9-a9b2-400e-a104-4bb99e20ad84",
-                    "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a981b740-8d0d-4c3d-88af-4cf4d415de82",
+                    "containerArn": "arn:aws:ecs:us-east-1:586421825777:container/2d4aa3c7-48d7-40c1-9b30-8938566c2b0c",
+                    "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/1133a3a7-811c-4672-ab95-2c343930825c",
                     "lastStatus": "RUNNING",
-                    "name": "articles",
+                    "name": "webapp",
                     "networkBindings": [
                         {
                             "protocol": "tcp",
@@ -721,7 +844,7 @@ Output:
 
 Now if we list the tasks again, we shouldn't see anything:
 
-    $ aws ecs list-tasks --cluster my-cluster
+    $ aws ecs list-tasks --cluster ecs-cluster
 
 Output:
 
@@ -729,58 +852,55 @@ Output:
         "taskArns": []
     }
 
-Let's create a file for holding our service:
+Let's create a folder for our services:
 
     $ mkdir ecs/services
 
-And now let's jump into that folder and use the command to generate a service skeleton:
+And now let's use the command to generate a service skeleton:
 
-    $ cd ecs/services
-    $ aws ecs create-service --generate-cli-skeleton > articles-service.json
+    $ aws ecs create-service --generate-cli-skeleton > ecs/services/webapp-service.json --cluster ecs-cluster
 
 Now open the generated file and replace the values with the following:
 
-
     {
-        "cluster": "my-cluster",
-        "serviceName": "articles-service",
-        "taskDefinition": "articles:5",
+        "cluster": "ecs-cluster",
+        "serviceName": "webapp-service",
+        "taskDefinition": "webapp:1",
         "loadBalancers": [
             {
-                "loadBalancerName": "articles-load-balancer",
-                "containerName": "articles",
+                "loadBalancerName": "webapp-load-balancer",
+                "containerName": "webapp",
                 "containerPort": 80
             }
         ],
-        "desiredCount": 2,
+        "desiredCount": 3,
         "role": "ecsServiceRole"
     }
 
 And then create the service with:
 
-    $ aws ecs create-service --cli-input-json file://articles-service.json
+    $ aws ecs create-service --cli-input-json file://ecs/services/webapp-service.json
 
 Output:
 
     {
         "service": {
             "status": "ACTIVE",
-            "taskDefinition": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
+            "taskDefinition": "arn:aws:ecs:us-east-1:586421825777:task-definition/webapp:1",
             "pendingCount": 0,
             "loadBalancers": [
                 {
-                    "containerName": "articles",
+                    "containerName": "webapp",
                     "containerPort": 80,
-                    "loadBalancerName": "articles-load-balancer"
+                    "loadBalancerName": "webapp-load-balancer"
                 }
-      {
             ],
             "roleArn": "arn:aws:iam::586421825777:role/ecsServiceRole",
-            "createdAt": 1474773934.937,
-            "desiredCount": 2,
-            "serviceName": "articles-service",
-            "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/my-cluster",
-            "serviceArn": "arn:aws:ecs:us-east-1:586421825777:service/articles-service",
+            "createdAt": 1475114557.793,
+            "desiredCount": 3,
+            "serviceName": "webapp-service",
+            "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/ecs-cluster",
+            "serviceArn": "arn:aws:ecs:us-east-1:586421825777:service/webapp-service",
             "deploymentConfiguration": {
                 "maximumPercent": 200,
                 "minimumHealthyPercent": 100
@@ -789,50 +909,54 @@ Output:
                 {
                     "status": "PRIMARY",
                     "pendingCount": 0,
-                    "createdAt": 1474773934.937,
-                    "desiredCount": 2,
-                    "taskDefinition": "arn:aws:ecs:us-east-1:586421825777:task-definition/articles:5",
-                    "updatedAt": 1474773934.937,
-                    "id": "ecs-svc/9223370562080840870",
+                    "createdAt": 1475114557.793,
+                    "desiredCount": 3,
+                    "taskDefinition": "arn:aws:ecs:us-east-1:586421825777:task-definition/webapp:1",
+                    "updatedAt": 1475114557.793,
+                    "id": "ecs-svc/9223370561740218014",
                     "runningCount": 0
                 }
             ],
             "events": [],
             "runningCount": 0
         }
+    }
 
-Now we can try to hit the ELB url to see if it's actually routing requests to
+Now we can try to hit the ELB URL to see if it's actually routing requests to
 our application. Remember that the got the DNS when we called the create load balancer
 command:
 
 
-    $ curl -I articles-load-balancer-376855005.us-east-1.elb.amazonaws.com/articles
+    $ curl -I webapp-load-balancer-1711291190.us-east-1.elb.amazonaws.com/articles
 
     HTTP/1.1 200 OK
     Cache-Control: max-age=0, private, must-revalidate
     Content-Type: application/json; charset=utf-8
-    Date: Sun, 25 Sep 2016 03:29:21 GMT
+    Date: Thu, 29 Sep 2016 02:03:33 GMT
     ETag: W/"4f53cda18c2baa0c0354bb5f9a3ecbe5"
     Server: nginx/1.10.1 + Phusion Passenger 5.0.29
     Status: 200 OK
     X-Content-Type-Options: nosniff
     X-Frame-Options: SAMEORIGIN
     X-Powered-By: Phusion Passenger 5.0.29
-    X-Request-Id: 0b021b01-2df5-4a33-a474-6d1e25691f2f
-    X-Runtime: 0.002538
+    X-Request-Id: 5e670c6e-dde7-48bd-bb61-00d5598946b4
+    X-Runtime: 0.012451
     X-XSS-Protection: 1; mode=block
     Connection: keep-alive
 
-Great! In case you didn't notice, we declare that we wanted two tasks as our
+Great! In case you didn't notice, we declare that we wanted three tasks as our
 desired count. The cool thing about the ELB is that is going to balance the load
 between these number of tasks. This wouldn't be able to do without a service.
 
 Let's try to create an article to see if everything is working correctly:
 
-    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"the title","body":"The body"}' http://articles-load-balancer-376855005.us-east-1.elb.amazonaws.com/articles
+    $ curl -H "Content-Type: application/json" -X POST -d '{"title":"the title","body":"The body"}' http://webapp-load-balancer-1711291190.us-east-1.elb.amazonaws.com/articles
 
 Output:
 
-    {"id":1,"title":"the title","body":"The body","created_at":"2016-09-25T03:35:27.689Z","updated_at":"2016-09-25T03:35:27.689Z","slug":"the-title"}%
+    {"id":1,"title":"the title","body":"The body","created_at":"2016-09-29T02:04:32.267Z","updated_at":"2016-09-29T02:04:32.267Z","slug":"the-title"}%
 
 Cool! So we have our DB and our Load Balancer working correctly.
+
+In the next section we will see our to run updated to our application and how
+we can automate those updates with a little bit of bash scripting.
