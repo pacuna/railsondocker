@@ -39,7 +39,10 @@ Let's start by installing Jenkins on a new machine.
 For Jenkins, we are going to run a new AWS EC2 instance. We'll be using the
 AWS CLI for creating all the different resources we need. You can use the AWS
 Dashboard, but I prefer this approach since you can document everything and
-reuse the commands after.
+reuse the commands after. It's important to understand that Jenkins will be running on a regular
+EC2 Instance and not in a container. That's because Jenkins will have to build Docker images, 
+and doing that from another container can be kind of tricky. So let's stay old school
+with our CI server and launch a regular server.
 
 ### Creating a Key Pair
 
@@ -54,42 +57,26 @@ Then we need to add the permissions for that pem:
 
 Save this key in a safe folder. I like to keep my key pairs in `~/.ssh/keys`.
 
-### Creating a Security Group
-
-Another required argument for launching an instance is the name of a security
-group with a set of rules. Let's create one now:
-
-    $ aws ec2 create-security-group --group-name jenkins-sg --description "Jenkins Security Group"
-
-Output:
-
-    {
-        "GroupId": "sg-XXXXXXXX"
-    }
-
-Now let's add some rules for this security group. We need one for SSH access by using
-our Key Pair, and a rule for HTTP access. Let's use 8080 for the latter:
-
-    $ aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp --port 22 --cidr 0.0.0.0/0
-    $ aws ec2 authorize-security-group-ingress --group-id sg-XXXXXXXX --protocol tcp --port 8080 --cidr 0.0.0.0/0
-
-You can also use your IP address for the CIDR instead of the anywhere wild card. That
-way you have more protection by only allowing people from your network to connect.
+The instance we want to use has to launched in a VPC. We are going to use the same
+VPC where our cluster lives. If you don't remember how to get the security group
+and a subnet id for this VPC, you can go back to the section where we created
+a Database for our application running with ECS. You'll ned your security group id
+and one subnet id.
 
 ### Launching the instance
 
 You can use whatever image you prefer, but keep in mind the Jenkins installation and
-general configuration may be different. I'll go with the `Amazon Linux AMI 2016.03.3 (HVM)`
-which ID is `ami-7172b611`. Let's use the following command for launching an instance
-with decent specs for a small Jenkins server:
+general configuration may be different. I'll go with the `Amazon Linux AMI 2016.09.0 (HVM)`
+which ID is `ami-c481fad3`. Let's use the following command for launching an instance
+with decent specs for a small Jenkins server in our existent VPC:
 
-    $ aws ec2 run-instances --image-id ami-7172b611 --count 1 --instance-type t2.medium --key-name Jenkins --security-group-ids sg-XXXXXXXX --block-device-mappings '[{ "DeviceName": "/dev/xvda", "Ebs": { "VolumeSize": 20 } }]'
+    $ aws ec2 run-instances --image-id ami-c481fad3 --subnet-id subnet-3a09f717 --count 1 --instance-type t2.medium --key-name Jenkins --security-group-ids sg-bbe6b3c1 --block-device-mappings '[{ "DeviceName": "/dev/xvda", "Ebs": { "VolumeSize": 20 } }]' --associate-public-ip-address
 
 You'll have a big output showing you all new instance information:
 
     {
         "OwnerId": "586421825777",
-        "ReservationId": "r-2ee2d980",
+        "ReservationId": "r-445d77fa",
         "Groups": [],
         "Instances": [
             {
@@ -103,65 +90,135 @@ You'll have a big output showing you all new instance information:
                     "Name": "pending"
                 },
                 "EbsOptimized": false,
-                "LaunchTime": "2016-07-27T01:57:19.000Z",
-                "PrivateIpAddress": "172.31.7.199",
+                "LaunchTime": "2016-09-29T19:16:17.000Z",
+                "PrivateIpAddress": "10.0.1.116",
                 "ProductCodes": [],
-                "VpcId": "vpc-b7f146d2",
+                "VpcId": "vpc-a0e9c0c7",
                 "StateTransitionReason": "",
-                "InstanceId": "i-68177eb5",
-                "ImageId": "ami-7172b611",
-                "PrivateDnsName": "ip-172-31-7-199.us-west-2.compute.internal",
+                "InstanceId": "i-729ea343",
+                "ImageId": "ami-c481fad3",
+                "PrivateDnsName": "ip-10-0-1-116.ec2.internal",
                 "KeyName": "Jenkins",
                 "SecurityGroups": [
                     {
-                        "GroupName": "jenkins-sg",
-                        "GroupId": "sg-04267362"
+                        "GroupName": "amazon-ecs-cli-setup-ecs-cluster-EcsSecurityGroup-1QI8JT422T2EQ",
+                        "GroupId": "sg-bbe6b3c1"
                     }
                 ],
-                (truncated)
+                "ClientToken": "",
+                "SubnetId": "subnet-3a09f717",
+                "InstanceType": "t2.medium",
+                "NetworkInterfaces": [
+                    {
+                        "Status": "in-use",
+                        "MacAddress": "12:d7:fb:9b:28:3b",
+                        "SourceDestCheck": true,
+                        "VpcId": "vpc-a0e9c0c7",
+                        "Description": "",
+                        "NetworkInterfaceId": "eni-bee16eac",
+                        "PrivateIpAddresses": [
+                            {
+                                "Primary": true,
+                                "PrivateIpAddress": "10.0.1.116"
+                            }
+                        ],
+                        "Attachment": {
+                            "Status": "attaching",
+                            "DeviceIndex": 0,
+                            "DeleteOnTermination": true,
+                            "AttachmentId": "eni-attach-111a42ba",
+                            "AttachTime": "2016-09-29T19:16:17.000Z"
+                        },
+                        "Groups": [
+                            {
+                                "GroupName": "amazon-ecs-cli-setup-ecs-cluster-EcsSecurityGroup-1QI8JT422T2EQ",
+                                "GroupId": "sg-bbe6b3c1"
+                            }
+                        ],
+                        "SubnetId": "subnet-3a09f717",
+                        "OwnerId": "586421825777",
+                        "PrivateIpAddress": "10.0.1.116"
+                    }
+                ],
+                "SourceDestCheck": true,
+                "Placement": {
+                    "Tenancy": "default",
+                    "GroupName": "",
+                    "AvailabilityZone": "us-east-1c"
+                },
+                "Hypervisor": "xen",
+                "BlockDeviceMappings": [],
+                "Architecture": "x86_64",
+                "StateReason": {
+                    "Message": "pending",
+                    "Code": "pending"
+                },
+                "RootDeviceName": "/dev/xvda",
+                "VirtualizationType": "hvm",
+                "AmiLaunchIndex": 0
+            }
+        ]
+    }
 
-Now wait for a few minutes so the instance is ready. If you want, you can
+Now wait for a few minutes so the instance gets initialized. If you want, you can
 visit the AWS Console in order to check the instance status (or you can query
 the API if you prefer to).
 
+We can query the status using the instance id from the previous output with:
+
+    $ aws ec2 describe-instances --instance-ids i-729ea343 --query="Reservations[0].Instances[0].State"
+
+Output:
+
+    {
+        "Code": 16,
+        "Name": "running"
+    }
+
 ### Connecting to the instance
 
-First we'll need the Public DNS of this new server. Go to the AWS Console or run
-`aws ec2 describe-instances` to get it. Now connect to that hostname using `ec2-user`
-as the user, and passing the Jenkins PEM created previously:
+First we'll need the Public DNS or IP of this new server. Run
 
-    $ ssh ec2-user@your-public-hostname.compute.amazonaws.com -i ~/.ssh/keys/Jenkins.pem
+    $ aws ec2 describe-instances --instance-ids i-729ea343 --query="Reservations[0].Instances[0].NetworkInterfaces[0].Association.PublicIp"
 
-Make sure you replace the Hostname and with yours and that the Keys path
-points to the folder where you saved the Jenkins keys.
+Output:
+
+    "184.72.110.253"
+
+Now let's connect to that IP address using `ec2-user` as the user,
+and passing the Jenkins PEM created previously:
+
+    $ ssh ec2-user@184.72.110.253 -i Jenkins.pem
+
+Make sure you replace the IP and with yours and that the path for the Key
+is correct.
 
 You should see the welcome message:
 
-    Are you sure you want to continue connecting (yes/no)? yes
-    Warning: Permanently added 'ec2-52-42-195-25.us-west-2.compute.amazonaws.com,52.42.195.25' (ECDSA) to the list of known hosts.
 
            __|  __|_  )
            _|  (     /   Amazon Linux AMI
           ___|\___|___|
 
-    https://aws.amazon.com/amazon-linux-ami/2016.03-release-notes/
-    6 package(s) needed for security, out of 15 available
+    https://aws.amazon.com/amazon-linux-ami/2016.09-release-notes/
+    No packages needed for security; 3 packages available
     Run "sudo yum update" to apply all updates.
 
-We are in. Let's install Jenkins and some other stuff we need.
+Let's install Jenkins and other dependencies we need.
 
 ### Installing dependencies
 
-Now that we are inside of our server, let's install some tools we'll need:
+Now that we are inside of our server, let's install some tools we'll need. For that
+we'll login as the root user and use `yum` to install these dependecies:
 
     # sudo su
     # yum update -y
-    # yum install -y git nginx git docker
+    # yum install -y git nginx docker
 
 Let's also install Docker Compose with the instructions given in the
 [releases page](https://github.com/docker/compose/releases)
 
-    # curl -L https://github.com/docker/compose/releases/download/1.8.0/docker-compose-`uname -s`-`uname -m` > /usr/bin/docker-compose
+    # curl -L https://github.com/docker/compose/releases/download/1.8.1/docker-compose-`uname -s`-`uname -m` > /usr/bin/docker-compose
     # chmod +x /usr/bin/docker-compose
 
 We'll be using Docker Compose to run our test suite later.
@@ -187,104 +244,53 @@ run some commands so we can login as the Jenkins user in case we need to:
     # usermod -m /var/lib/jenkins jenkins
 
 The last dependency we need is `kubectl`. Without `kubectl` we can't talk
-to our cluster from jenkins. Let's pull the Kubernetes binaries, and configure
-`kubectl` so it can run commands in our cluster:
+to our cluster from jenkins. We can install it with:
 
-    # wget https://github.com/kubernetes/kubernetes/releases/download/v1.3.3/kubernetes.tar.gz
-    # tar -xf kubernetes.tar.gz
-    # chmod +x kubernetes/platforms/linux/amd64/kubectl
-    # cp kubernetes/platforms/linux/amd64/kubectl /usr/bin/
+    # curl -Lo kubectl http://storage.googleapis.com/kubernetes-release/release/v1.3.0/bin/linux/amd64/kubectl && chmod +x kubectl && sudo mv kubectl /usr/bin/
 
-Finally let's reboot the machine
+That's going to to the trick for Kubernetes. 
+For ECS, we'll also need the AWS CLI. Let's install it with:
 
-    # reboot 1
+    # curl "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip"
+    # unzip awscli-bundle.zip
+    # ./awscli-bundle/install -i /usr/local/aws -b /usr/local/bin/aws
 
-Wait for a couple of minutes until the server is up again and then go to
-`http://your-hostname:8080`. For this version of Jenkins there's
-an installation wizard. Just follow the instructions and use all the recommended
-settings and create the admin user.
+Before we restart the server, let's configure the main tools we need, Docker, `kubectl`
+for Kubernetes and `aws cli` for ECS.
 
-Now that we have our Jenkins server and our admin user configured, let's install
-some plugins that'll be helpful for building our deploy pipeline.
-Go to `Manage Jenkins-> Manage Plugins -> Available` and search for the following
-plugins:
+For Docker we only need to login so this server can have access to DockerHub. You have
+to use the same credentials that allow access to the repository we have been working with:
 
-- GitHub Authentication plugin
-- CloudBees Docker Build and Publish plugin
-- CloudBees Docker Hub/Registry Notification
+    # docker login
+    Login with your Docker ID to push and pull images from Docker Hub. If you don't have a Docker ID, head over to https://hub.docker.com to create one.
+    Username: pacuna
+    Password:
+    Login Succeeded
 
-Select each one of those and click on `Install without restart`.
-
-## Configuring the Job
-
-Right now we have our Docker Image, but we'll also need a GitHub repository so
-we can trigger a build after every deploy. Go to GitHub and create a new
-repository and call it `articles`.
-
-Go to the Jenkins home and click on `create new jobs`. Use the name `Articles`
-and select `Freestyle project`, then click `OK`.
-
-In the `General` section, check GitHub project and add the URL of your
-repository. For example I'll use `https://github.com/pacuna/articles`.
-
-In the `Source Code Management` section select `Git` and once again
-use your repository URL. Click in the Add button in the credentials section to open
-the Jenkins credentials provider, use the `Username with password` kind, and
-add your Username and Password for GitHub. Make sure to select those
-credentials after, and that Jenkins doesn't throw any field errors. That's all
-for that section.
-If you have problems with Kind of authentication, you can also add your username
-and ssh private key to the Jenkins Credentials Provider and use the SSH URL of your
-repository.
-
-In the `Build Triggers` section, check on `Build when a change is pushed to GitHub`.
-
-In the `Build` section add a `Docker Build and Publish` step. Here, use your
-DockerHub repository name, for example `pacuna/articles`. In the tag field
-write `version_$BUILD_NUMBER`. That way we can tag our versions using the number
-of this build (that's a Jenkins environmental variable). Finally
-click on the `Add` button for `Registry Credentials` and create a set of
-credentials with your Username and Password for DockerHub and then select
-those credentials. There's no need to fill the `Docker registry URL` which
-by default will be pointing to DockerHub. Now, click on `Apply` and then `Save`.
-
-Right now we haven't added anything smart to this pipeline. If we build the project
-now, the Job will pull the master branch from our GitHub repository and then it'll
-build a new Docker image and push it to DockerHub. Let's test it so we can
-make sure all the credentials are working correctly. Go to the `Articles` project
-and on the side menu click on `Build Now`.
-You should see the Job running. If you click on the Job and go to `Console Output`
-you'll see all the plugins in actions pulling the project from GitHub, creating the
-image and then pushing it to DockerHub.
-
-## Configuring Jenkins for accessing the cluster
-
-We have `kubectl` installed but we haven't configured our cluster yet. The only
-thing we have to do is to copy our Kubernetes configuration file into a file
-in the Jenkins server. Let's do that now.
-First, ssh into your server and switch to the root user:
-
-    # sudo su
-
-Now switch to the jenkins user:
+For `kubectl` we only need to add our cluster information and credentials so the
+Jenkins user can have access. All that information is kept in the `~/.kube/config`
+file of the user that's using the client. Let's switch to the Jenkins user and
+create that file:
 
     # sudo su - jenkins
-
-And create a `kubectl` configuration file:
-
-    # mkdir -p ~/.kube/
+    # mkdir -p ~/.kube
     # touch ~/.kube/config
 
-Now we have to copy the AWS parts of the configuration file for our cluster.
+Now we can copy our local `~/.kube/config` file into the Jenkins server file.
+Remember our local machine is already configured to interact with the cluster, so
+all of the necessary credentials live in that file. You should be careful with that
+information, since anyone who gets the file would have access to created and delete
+resources in your Kubernetes cluster. 
+After you copy the file, you can remove the sections that belong to Minikube.
+For this server we only need access to our production cluster.
 
-Open you `~/.kube/config` file and copy the AWS sections to the configuration file
-in the server. The parts you want copy should be these:
+Your `~/.kube/config` in your Jenkins server should look something like this:
 
     apiVersion: v1
     clusters:
     - cluster:
-        certificate-authority-data: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-        server: https://XX.XX.XX.XX
+        certificate-authority-data: VERYLONGSTRING
+        server: https://52.32.34.173
       name: aws_kubernetes
     contexts:
     - context:
@@ -297,67 +303,188 @@ in the server. The parts you want copy should be these:
     users:
     - name: aws_kubernetes
       user:
-        client-certificate-data: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-        client-key-data: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-        token: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        client-certificate-data: VERYLONGSTRING
+        client-key-data: VERYLONGSTRING
+        token: 6YkrOgBXQXCgeATdTiAzc6diZk6VwMfR
     - name: aws_kubernetes-basic-auth
       user:
         password: XXXXXXXXXXXXXXXX
         username: admin
 
-Basically we are removing all of the `minikube` parts and leaving the production
-cluster sections.
+Let's see if `kubectl` is correctly configured by getting the nodes of the cluster:
 
-Now if you run `kubectl get services` you should see the current services
-running in your cluster. That means Jenkins now can run works in our cluster.
+    # kubectl get nodes
+    NAME                                        STATUS    AGE
+    ip-172-20-0-64.us-west-2.compute.internal   Ready     2d
+    ip-172-20-0-65.us-west-2.compute.internal   Ready     2d
 
-## Updating the cluster
+Great! Now we have to configure the AWS CLI. This is going to be as simple
+as it was with `kubectl`. If you remember, the configuration for this tool
+lives in the file `~/.aws/credentials` and `~/.aws/config. We also have to copy our local files
+that contains the access tokens for our account and our preferences to files in the home of the Jenkins user.
+Let's create the folder and files in the server. Remember you have to be logged in as the Jenkins user:
 
-Now that we know Jenkins can use our cluster, let's add a build step to our
-Job. Go to your `Articles` project in Jenkins and click on `Configure`.
+    # mkdir -p ~/.aws
+    # touch ~/.aws/credentials
+    # touch ~/.aws/config
 
-At the end, add another `build step` but this time choose `Execute shell`.
-The script we're adding here should update and rerun our setup-job.yaml file
-and also update our application deployment. The deployment is very easy to update,
-we can just set the latest image we just created by using something like:
+Now copy your local files to those remote files in the server.
+Let's test the configuration by querying the API and getting the cluster information:
 
-    kubectl set image deployment/articles articles=pacuna/articles:version_$BUILD_NUMBER
+    # aws ecs describe-clusters --cluster ecs-cluster
+    {
+        "clusters": [
+            {
+                "status": "ACTIVE",
+                "clusterName": "ecs-cluster",
+                "registeredContainerInstancesCount": 2,
+                "pendingTasksCount": 0,
+                "runningTasksCount": 2,
+                "activeServicesCount": 1,
+                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/ecs-cluster"
+            }
+        ],
+        "failures": []
+    }
 
-But with the setup Job is a little bit more complicated. There's
-not an easy way of updating a pod. We have to modify the template so it takes
-the latest image version, delete it from the cluster and the run it again.
+You can the AWS CLI is correctly configured. Now we can reboot the server
+and start to work with Jenkins.
 
-For that we can use `sed` for finding the image by using a Regex pattern and then
-replacing the file with the created image. Something like this should do the trick:
+    # reboot 1
 
-    $ sed -e 's/pacuna\/articles:[a-z0-9_]*/pacuna\/articles:version_$BUILD_NUMBER/g' kube/production/setup-job.yaml \
-    > kube/production/setup-job.yaml.tmp && \
-    mv kube/production/setup-job.yaml.tmp kube/production/setup-job.yaml
+After the reboot, Jenkins should be running on port 8080, but currently our VPC security
+group doesn't allow access through that port. Let's add a new rule:
 
-That command will find the string `pacuna/articles:version_SOMENUMBER` and replace
-it with `pacuna/articles:version_$BUILD_NUMBER` which is the recent built version.
-Then it'll replace the old file with the result of that replacing.
+    $ aws ec2 authorize-security-group-ingress --group-id sg-bbe6b3c1 --protocol tcp --port 8080 --cidr 0.0.0.0/0
 
-Now, in the `Execute Shell` add the following:
+Now we can go to `http://184.72.110.253:8080` and see the Jenkins installer. 
 
-    # delete old setup Job
-    kubectl delete -f kube/production/setup-job.yaml
+![Jenkins install](images/ci/1-jenkins-installer.png)
 
-    # replace old image version in the setup template file
-    sed -e "s/pacuna\/articles:[a-z0-9_]*/pacuna\/articles:version_${BUILD_NUMBER}/g" kube/production/setup-job.yaml \
-    > kube/production/setup-job.yaml.tmp && \
-    mv kube/production/setup-job.yaml.tmp kube/production/setup-job.yaml
+Log into your the instance again and get that initial admin password:
 
-    # recreate the setup pod with the new articles image
-    kubectl create -f kube/production/setup-job.yaml
+    $ ssh ec2-user@184.72.110.253 -i Jenkins.pem
+    # sudo su
+    # cat /var/lib/jenkins/secrets/initialAdminPassword
+    XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
-    # update the deployment with the new articles image
-    kubectl set image deployment/articles articles=pacuna/articles:version_$BUILD_NUMBER
+Use that password to continue with the following steps.
+In the following step select `Install the suggested plugins`.
+Next, chose a username for the admin user along with a password and the other
+requested information. Then click on `Save and Finish` and finally on `Start using Jenkins`.
 
-And click on `Apply` and then `Save`.
+Then you should see the Jenkins Home:
 
-Now go and click on `Build Now` and if you click on the Job and see the console
-output, you'll see how the process is now completely automatic.
+![Jenkins Home](images/ci/2-jenkins-home.png)
+
+Now that we have our Jenkins server and our admin user configured, let's install
+a plugin that will help us with the interaction with our GitHub repository.
+
+Go to `Manage Jenkins-> Manage Plugins -> Available` and search for the following
+plugin: `GitHub Authentication plugin`
+
+![Jenkins Plugins](images/ci/3-github-plugin.png)
+
+Select the plugin and click on `Install without restart`.
+
+## Configuring a Job for Kubernetes
+
+Right now we have our Docker Image, but we'll also need a GitHub repository so
+we can trigger a build after every deploy. Go to GitHub and create a new
+repository and call it `webapp`. In my case the URL for the repo will be `https://github.com/pacuna/webapp`.
+
+Go to the Jenkins home and click on `create new jobs`. Use the name `webapp-k8s`,
+select `Freestyle project`, then click `OK`.
+
+![Jenkins Plugins](images/ci/4-webapp-k8s.png)
+
+In the `General` section, check GitHub project and add the URL of your
+repository. For example I'll use `https://github.com/pacuna/webapp`.
+
+![Job Configuration](images/ci/5-webapp-k8s-general.png)
+
+In the `Source Code Management` section select `Git` and once again
+use your repository URL. Click in the Add button in the credentials section to open
+the Jenkins credentials provider, use the `Username with password` kind, and
+add your Username and Password for GitHub. Make sure to select those
+credentials after, and that Jenkins doesn't throw any field errors.
+
+![Job Configuration](images/ci/6-webapp-k8s-sm.png)
+    
+If you have problems with the GitHub authentication, you can also add your username
+and ssh private key to the Jenkins Credentials Provider and use the SSH URL of your
+repository.
+
+In the `Build Triggers` section, check on `Build when a change is pushed to GitHub`.
+
+![Job Configuration](images/ci/7-webapp-k8s-trigger.png)
+
+Finally, the smart part of the pipeline. Add build step and select `Execute shell`.
+This command will be executed after the latest code gets pulled from the GitHub
+repository.
+This script should be super simple. All the work is done by two scripts we already
+have: `deploy/push.sh` and `deploy/migrate.sh`. So let's add a call to those
+two files:
+
+![Job Configuration](images/ci/8-webapp-k8s-scripts.png)
+
+Clic on `Apply` and then `Save`.
+
+Our deployment pipeline for Kubernetes should be ready. Let's fix our database
+host in case you changed or testing ECS:
+
+    production:
+      <<: *default
+      # host: webapp-postgres.caxygd3nh0bk.us-east-1.rds.amazonaws.com
+      host: postgres
+      database: webapp_production
+      username: webapp
+      password: mysecretpassword
+
+Let's commit that change:
+
+    $ git add .
+    $ git commit -m 'fix db host for kubernetes'
+    $ git push origin master
+
+Remember we haven't added the hook to our GitHub repo. So right now a push to master
+will not trigger a deploy in Jenkins. We have to trigger a build by hand using the `Build Now` link
+on the sidebar of the project page in Jenkins.
+Click on `Build Now` and you will see the Job starting:
+
+![Job Configuration](images/ci/9-k8s-job-running.png)
+
+Click on the Job and then go to `Console Output` to inspect the logs. There
+you should see all the output we used to watch from our local machine but this
+time running on the Jenkins server:
+
+![Job Configuration](images/ci/10-k8s-console-output.png)
+
+And the when the Job finishes, you'll can go to the bottom of the logs and see
+`kubectl` updating our cluster:
+
+![Job Configuration](images/ci/11-k8s-end-output.png)
+
+Let's check if everything is OK with our webapp service. Remember you can get
+the Load Balacer DSN with `kubectl describe service webapp`
+
+    [{"id":1,"title":"my first article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-09-27T03:07:36.706Z","updated_at":"2016-09-27T03:07:36.706Z","slug":null},{"id":34,"title":"my second article","body":"Lorem ipsum dolor sit amet, consectetur adipiscing elit...","created_at":"2016-09-28T03:20:37.427Z","updated_at":"2016-09-28T03:20:37.427Z","slug":"my-second-article"}]%
+
+Cool! The only missing thing is to add a Webhook to our GitHub repository, so
+a push to master triggers a deploy.
+
+Go to your GitHub repository, click on `Settings` -> `Integration & Services` and then
+`Add service`. Look for the Jenkins (GitHub Plugin) and select.
+Then in the `Jenkins hook url` add the following (replace with your Jenkins IP address):
+
+    http://184.72.110.253:8080/github-webhook/
+
+Make sure `Active` is selected and then click on save.
+
+And that's it! Now every time you push something to your master branch, a deploy
+will be triggered for the associated Job we just configure.
+
+![Hook Configuration](images/ci/12-k8s-hook.png)
 
 ## Running the test suite
 
@@ -373,40 +500,22 @@ It doesn't have much sense to push a broken image. So this workflow will be:
 - Jenkins waits for the status code of the test container
 - If status is different than 0, the deployment stops.
 
-First, let's configure our test database credentials in development.
+First, let's try to run our tests locally with docker-compose. We'll have to
+create our test database in case it doesn't exists, and also run the migrations.
+On your local machine run:
 
-Add the following configuration to your `config/database.yml` file:
-
-    test:
-      <<: *default
-      host: postgres
-      username: articles
-      password: mysecretpassword
-      database: articles_test
-
-Remember we are running a PostgreSQL container and creating a non-default super user.
-In this case the user is `articles`.
-Now, let's create the test database in our development container:
-
-    $ docker-compose exec webapp /bin/bash -c "RAILS_ENV=test rake db:create"
-
-Output:
-
-    Created database 'articles_test'
+$   $ docker-compose run --rm webapp bin/rails db:create RAILS_ENV=test
+$   $ docker-compose run --rm webapp bin/rails db:migrate RAILS_ENV=test
 
 And now let's run the tests:
 
-    $ docker-compose exec webapp /bin/bash -c "RAILS_ENV=test rake"
+    $ docker-compose run --rm webapp bin/rake RAILS_ENV=test
 
 Output:
 
-    Run options: --seed 2060
+    .
 
-    # Running:
-
-    .....
-
-    Finished in 1.398970s, 3.5741 runs/s, 5.0037 assertions/s.
+    Finished in 1.267605s, 3.9444 runs/s, 5.5222 assertions/s.
 
     5 runs, 7 assertions, 0 failures, 0 errors, 0 skips
 
@@ -416,35 +525,38 @@ Let's create a docker-compose file for the testing environment and a script for 
 (you can create these files in your root application folder):
 
     $ touch docker-compose.test.yml
-    $ touch test.sh
+    $ touch setup.test.sh
+    $ chmod +x setup.test.sh
 
 First, for the docker-compose.test.yml file add the following:
-
 
     version: '2'
     services:
       webapp_test:
+        container_name: webapp_test
         build: .
         depends_on:
           - postgres
         environment:
           - PASSENGER_APP_ENV=test
-        entrypoint: ./test.sh
+        entrypoint: ./setup.test.sh
       postgres:
         image: postgres:9.5.3
         environment:
           - POSTGRES_PASSWORD=mysecretpassword
-          - POSTGRES_USER=articles
+          - POSTGRES_USER=webapp
+          - POSTGRES_DB=webapp_test
 
 Pretty simple. We are running a container that builds our application
-from the latest code and a is connected to a database container. We use the `test.sh` as the new
+from the latest code and a is connected to a database container. We use the `setup.test.sh` as the new
 entrypoint, and we set the `PASSENGER_APP_ENV` to `test` so the commands
 in the entrypoint run on that environment.
 
-Now, for the `test.sh` file add the following:
+Now, for the `setup.test.sh` file add the following:
 
     #!/bin/sh
 
+    echo "Waiting PostgreSQL to start on 5432..."
 
     while ! nc -z postgres 5432; do
       sleep 0.1
@@ -452,13 +564,12 @@ Now, for the `test.sh` file add the following:
 
     echo "PostgreSQL started"
 
-    echo "Creating test database"
-    rake db:create
-
-    rake
+    bin/rails db:create RAILS_ENV=test
+    bin/rails db:migrate RAILS_ENV=test
+    bin/rake RAILS_ENV=test
 
 Same as the setup container, we wait for the PostgreSQL container to be available.
-Then we create the test database and finally we run our tests with the `rake` command.
+Then we create and migrate the test database and finally we run our tests with the `rake` command.
 
 Now, just for testing purposes, let's break one of our tests.
 
@@ -480,14 +591,14 @@ that this test fails.
 Now push this code to your GitHub repository. There's no need to build a new
 image since Jenkins is now doing that work for us with every build.
 
-    $ git add .
+    $ git add -A
     $ git commit -m 'Add testing stuff'
     $ git push origin master
 
-Now let's go to our `Articles` project's configuration in Jenkins.
+Now let's go to our `webapp-k8s` project's configuration in Jenkins.
 
 Add a new Build step selecting `Execute Shell` and then drag that step
-and put it before the `Docker Build and Publish` step. Remember we don't want to
+and put it before the one created before. Remember we don't want to
 create and push the new image until we're sure the tests pass.
 
 Add the following to that step:
@@ -496,50 +607,31 @@ Add the following to that step:
 
     # create test environment
     docker-compose -f docker-compose.test.yml build
-    docker-compose -f docker-compose.test.yml up -d
+    docker-compose -f docker-compose.test.yml run --rm webapp_test
 
-
-    # wait for the test container to finish and get its status code
-    EXIT_CODE=$(docker wait articles_webapp_test_1)
-
-    if [ $EXIT_CODE -eq 0 ]
+    # check the last status code
+    if [ $? -eq 0 ]
     then
-      docker logs articles_webapp_test_1
-      echo "All tests passed! :)"
-      docker-compose -f docker-compose.test.yml rm --force
+            echo "All tests passed! :)"
     else
-      docker logs articles_webapp_test_1
-      echo "Tests failed! :("
-      docker-compose -f docker-compose.test.yml rm --force
-      exit 1
+            echo "Tests failed! :("
+        exit 1
     fi
+
+![Test build step](images/ci/13-k8s-test-script.png)
 
 This script will run Docker Compose and will use the `docker-compose.test.yml`
 file we created. It'll build the image using the current workspace, that contains
 the latest code pulled from GitHub.
-Then, with the help of the `docker wait` command, we can get the status code
-of the test container. This container runs the `rake` command, which will return
-0 if all the tests pass, and 1 otherwise.
-After we have that exit code, we print the logs for that container, so we can
-see the tests, print a friendly message and then remove the containers.
-On the contrary, if the tests don't pass, we delete the containers and stop
-the deployment. At this point, the `exit 1` command will stop the deploy and Jenkins
-will mark this release as failed. The image will not be pushed to DockerHub, which
-is what we want.
+If the tests failed, the exit code will be different than 0. In that
+case we stop the deployment using `exit 1` and Jenkins won't do anything else
+and will mark this build as failure.
+On the contrary, if the tests passes, the status code will be 0 and the deployment
+continues.
 
 Click on Apply and then save.
 Now let's test this pipeline by running `Build Now` on the sidebar.
 If you go to the console output after build the project, at the end you should see:
-
-    PostgreSQL started
-    Creating test database
-    Database 'articles' already exists
-    Database 'articles_test' already exists
-    Run options: --seed 21780
-
-    # Running:
-
-    ...F
 
     Failure:
     ArticlesControllerTest#test_should_create_article [/home/app/webapp/test/controllers/articles_controller_test.rb:18]:
@@ -548,26 +640,23 @@ If you go to the console output after build the project, at the end you should s
       Actual: 201
 
     bin/rails test test/controllers/articles_controller_test.rb:13
-
+    ...
+    (truncated)
+    ...
     .
 
-    Finished in 0.495264s, 10.0956 runs/s, 14.1339 assertions/s.
+    Finished in 0.411073s, 12.1633 runs/s, 17.0286 assertions/s.
 
     5 runs, 7 assertions, 1 failures, 0 errors, 0 skips
     Tests failed! :(
-    Removing articles_webapp_test_1 ...
-    Removing articles_webapp_test_1 ... done
-    Going to remove articles_webapp_test_1
     Build step 'Execute shell' marked build as failure
     Finished: FAILURE
 
 That's excellent! Remember we pushed a broken test to GitHub and that's
 why this deploy is failing.
 
-Now let's fix the test, push the code to GitHub and build the project once again.
-
+Now let's fix the test, push the code to GitHub and see if this build passes.
 First fix the articles controller test so it checks for a 201 status code:
-
 
     test "should create article" do
       assert_difference('Article.count') do
@@ -583,40 +672,46 @@ Now push those changes to the repository:
     $ git commit -f 'Fix broken test'
     $ git push origin master
 
-Now, go to your Jenkins projects and hit `Build Now` one more time.
-If you follow the console output you can see the tests passing:
+Now, go to your Jenkins projects monitor the output of this build. At one point you
+should see your tests passing:
 
-    Database 'articles' already exists
-    Database 'articles_test' already exists
-    Run options: --seed 54264
+    .
 
-    # Running:
-
-    .....
-
-    Finished in 0.454971s, 10.9897 runs/s, 15.3856 assertions/s.
+    Finished in 0.416967s, 11.9914 runs/s, 16.7879 assertions/s.
 
     5 runs, 7 assertions, 0 failures, 0 errors, 0 skips
     All tests passed! :)
 
-Then the image is built and pushed to DockeHub:
+    Then the image is built and pushed to DockeHub:
 
     ...
-    version_24: digest: sha256:a495edcdff27fb3234c6a27e2077ee3103e49c927f51e020cf814997c7906b2d size: 5116
-    [articles] $ docker push pacuna/articles:latest
-    The push refers to a repository [docker.io/pacuna/articles]
-    d42093693d3e: Preparing
-    4e7715ba227e: Preparing
-    4fff77f116fb: Preparing
-    bc3a60fe1ebb: Preparing
+     docker build -f Dockerfile -t pacuna/webapp:9c387bc .
+    Sending build context to Docker daemon   236 kB
+
+    Step 1 : FROM phusion/passenger-ruby23:0.9.19
+     ---> 6841e494987f
+    Step 2 : ENV HOME /root
+     ---> Using cache
+     ---> 36d6c73cd6e5
+    Step 3 : CMD /sbin/my_init
+     ---> Using cache
+     ---> d94279fdbbc8
+    Step 4 : RUN apt-get update && apt-get install -y -o Dpkg::Options::="--force-confold" netcat
+     ---> Using cache
+     ---> e0d7432f73c6
+    Step 5 : RUN rm -f /etc/service/nginx/down
+     ---> Using cache
+     ---> b8a8f4e592e5
     ...
 
-And finally the Kubernetes templates are updated:
+And finally the Kubernetes cluster is updated:
 
+    + kubectl delete jobs/setup
     job "setup" deleted
+    + sed s/webapp:LAST_COMMIT/webapp:9c387bc/g kube/jobs/setup-job.yaml
+    + kubectl create -f setup-job.yaml.tmp
     job "setup" created
-    deployment "articles" image updated
-    Finished: SUCCESS
+    + rm setup-job.yaml.tmp
 
 Awesome! Now you know how to add a build step that runs your test suite
 for avoiding deploys that may break your application.
@@ -625,18 +720,3 @@ You may want to version all of the scripts that you use in your Jenkins steps.
 It's better to keep those scripts in your applications and only call the
 file instead of writing the bash code in Jenkins. But that's up to you. I'm only showing
 you some ideas that can help you to write your customized scripts.
-
-## Push to deploy
-
-Now that we have our deploy pipeline ready, it's very easy to add service hook
-so deploys are triggered via GitHub pushes.
-
-First, go to your Articles GitHub repository and navigate to `Settings` -> `Webhooks & services`.
-Click on `Add service` a search for the `Jenkins (GitHub Plugin)`
-After filling out your password add the URL for the Jenkins Hook:
-
-    http://your-jenkins-address:8080/github-webhook/
-
-And then click on `Add service`.
-That's it! Now every time you push a change to your GitHub repository, a new
-deploy will be triggered in the Jenkins Server.
