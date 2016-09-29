@@ -960,3 +960,5 @@ Cool! So we have our DB and our Load Balancer working correctly.
 
 In the next section we will see our to run updated to our application and how
 we can automate those updates with a little bit of bash scripting.
+
+## Running updates to our application
