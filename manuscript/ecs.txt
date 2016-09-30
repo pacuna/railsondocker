@@ -80,6 +80,35 @@ Then you can run the task with:
 
 Indicating the family and revision number, along the name of the cluster where you want to run it.
 
+Another important aspect of Tasks, is that we can override a definition and run
+a task using a custom entrypoint. This will help us to run tasks that live
+in our application, like migrations, or assets related tasks.
+
+We can declare an task override with:
+
+    {
+      "containerOverrides": [
+        {
+          "name": "webapp",
+          "command": ["bin/rails", "db:migrate", "RAILS_ENV=production"],
+          "environment": [
+            {
+              "name": "PASSENGER_APP_ENV",
+              "value": "production"
+            }
+          ]
+        }
+      ]
+    }
+
+And run it with:
+
+    $ aws ecs run-task --task-definition webapp --overrides file://migrate-overrides.json --cluster ecs-cluster
+
+That's going to run a new task using the same definition we have for our main application, but with
+a custom entrypoint that's going to migrate the database. After that, the task will finish.
+This is similar to what we did in Kubernetes with the concept of Jobs.
+
 ### Service
 
 The service is element that's going to give us a static end point for our running tasks.
