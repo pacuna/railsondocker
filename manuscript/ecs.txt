@@ -5,10 +5,10 @@
 Although every container orchestration framework uses their own specific
 language for their concepts, they all try to solve the same issues. That's
 why you'll find some similarities between ECS and Kubernetes but also a couple
-of differences in the way the solve the issues.
+of differences in the way they solve the issues.
 One strong point in favor of ECS, is that because it's a native AWS technology, 
 it is completely integrated with the other components, like VPCs, EC2, ELBs, Route53, etc.
-The main issue with ECS is that would be coupled to AWS, since currently you can't run
+The main issue with ECS is that you will be coupled to AWS, since currently you can't run
 an ECS cluster on other cloud providers, which makes sense since it's an Amazon technology.
 
 Let's review the main concepts in ECS. 
@@ -137,7 +137,7 @@ we can specify the ELB identifier in the service definition in the following way
 
 We need to specify a name for the service, the task definition we want to use
 to run the tasks, the ELB specifications and the desired number of tasks that the service
-should keep running. We also have to specify the Role that ECS creates for our services.
+should keep running. We also have to specify the Role that ECS created for our services.
 
 Once we have this template, we can launch the service with:
 
@@ -196,10 +196,10 @@ Output:
 
     INFO[0000] Saved ECS CLI configuration for cluster (ecs-cluster)
 
-The configuration file is located at '~/.ecs/config'. If you inspect that file, you'll
+The configuration file is located at `~/.ecs/config`. If you inspect that file, you'll
 see that none of our AWS credentials are actually there. You could also have passed
 those tokens with the configure commands, and it would have been saved in the file. But since
-we already have our credentials configure to use the AWS CLI, the ECS CLI knows
+we already have our credentials configured to use the AWS CLI, the ECS CLI knows
 where to find the credentials when they aren't passed as arguments.
 
 Now that we have the configuration ready for the cluster, we can launch it along
@@ -272,7 +272,7 @@ Output:
     }
 
 OK, that's better. Now you can see the cluster has a status of active and it has
-two instances registered. You also can other information about the tasks and services
+two instances registered. You can also see more information about the tasks and services
 in our cluster. Don't worry about that yet. We'll see that later when we start
 to run containers in the cluster.
 
@@ -280,8 +280,8 @@ to run containers in the cluster.
 
 AWS ECS doesn't currently have native support for DNS discovery like Kubernetes has.
 This is a big issue when you want to run a lot of different services in the cluster
-and even bigger if lots of those service need to be non-public. This is because
-the typical form for service discovery in ECS is via Load Balancer. So every time
+and even bigger if lots of those services need to be non-public. This is because
+the typical form for service discovery in ECS is done via load balancing. So every time
 you create a service that you need to be discoverable by other services, you
 need to create a Load Balancer for it. This can be expensive if you're running
 a micro-service architecture. In kubernetes this problem is solved via DNS discovery.
@@ -316,7 +316,7 @@ create it inside of the same VPC that the ECS CLI created for our cluster. That'
 a much more secure approach that just launch a server open to the internet. We want
 to run a database that's only accessible from the same VPC.
 
-First, let's collect some data that we may need during for the execution of the following
+First, let's collect some data that we may need during the execution of the following
 commands. These are our VPC id and the id of one of the VPC's subnets.
 
 Let's describe all of our current VPC ids and the first tag:
@@ -628,7 +628,7 @@ Open the file and replace its content with:
         ]
     }
 
-For the image, you should use the Docker image we created after we setted up
+For the image, you should use the Docker image we created after we set up
 the database credentials. It should be `ecs-` followed by the last commit.
 
 Now we can register this file with:
@@ -1144,12 +1144,12 @@ Output:
 
 Cool! So we have our DB and our Load Balancer working correctly.
 
-In the next section we will see our to run updated to our application and how
+In the next section we will see our to run updates to our application and how
 we can automate those updates with a little bit of bash scripting.
 
 ## Running updates to our application
 
-Same we did with Kubernetes, we want to using a couple of automated scripts
+Same we did with Kubernetes, we want to use a couple of automated scripts
 to run updates for our application. We have to be able to automate two things:
 migrate our database in case there are new migrations, and after building a new
 version of our image, create a new task definition revision with that new tag
@@ -1183,7 +1183,7 @@ Add the following to the push.sh file:
     aws ecs update-service --service webapp-service --task-definition webapp --desired-count 1 --cluster ecs-cluster
 
 Similar to what we did with Kubernetes, we are tagging our newest image with
-the latest commit hash. Then we are using the `sed` tool replace a placeholder
+the latest commit hash. Then we are using the `sed` tool to replace a placeholder
 with the string `LAST_COMMIT` in our task definition template with the latest
 image and its tag. We output that new file to a temp file, register a new
 task definition with it and then updating the service. When we update the service
