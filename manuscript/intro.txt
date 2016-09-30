@@ -3,7 +3,7 @@
 There are a lot of different container orchestration platforms out there. Every one
 of them has a different set of features that set them apart.
 Choose one of these platforms can be a complex task. You have to dig into the specifics
-of each one of these to see if you like the concepts and the ways behind the framework.
+of each one of these to see if you the concepts and the mechanisms behind the framework make sense to you .
 It's almost impossible to judge them without trying them for a while.
 Sadly not many people have the time to try every one of the current alternatives.
 
@@ -13,29 +13,30 @@ different configuration, different initialization steps and different tasks
 to run updates. Even though there are some practices in the world of containers that could
 be considered as standards, the differences between the applications always creates a new
 problem that has to be solved in a custom way. And for this, it's critical to choose
-an orchestration platform that supports for all of these requirements and that provides
+an orchestration platform that adds support for all of these requirements and that provides
 the tools to create a smooth workflow when running updates.
-In this books you'll find steps to deploy a specific type of applications, Rails web applications.
+
+In this book you'll see the main steps to deploy a specific type of applications, a Ruby on Rails application.
 If you are a Rails developer, you should be pretty familiarized with the typical steps
-to run a Rails application on development and on production.
-If you don't use Rails, this books should also give you valuable information on how
-to create templates to run tasks and web application using Docker and Kubernetes and ECS
+to run a Rails application on development and production.
+If you don't use Rails, this book should also give you valuable information on how
+to create templates to run tasks and web applications using Docker with Kubernetes and ECS
 for deployment.
 
 After you choose the right platform to deploy your application, you have to deal
 with the issue of running the whole infrastructure. You have to create and manage a cluster
-of nodes and be able to add or remove nodes when necessary. In this book you'll see
-how Kubernetes and ECS deal with this task in a very transparent way. You can launch
-an entire cluster with a couple of commands and without being an expert in issue
-like networking or DNS.
+and be able to add or remove nodes when necessary. In this book you'll see
+how Kubernetes and ECS deal with these tasks in a very transparent way. You can launch
+an entire cluster with a couple of commands without being an expert on topics
+such as networking or DNS.
 
 Once you have your application up and running, you can build a Continuous Integration
-pipeline around it. The whole idea of this it to be able to run deployments very often
-without having downtime and making sure that we are not pushing bad code. Automated testing is 
+pipeline around it. The whole idea of this, is to be able to run deployments very often
+without having downtime and making sure that we are not pushing bad code to our version control system. Automated testing is 
 a big part in this structure. We should be able to run our test suite before sending our
 code to production servers. For that we also have several alternatives out there.
-Here we are going to be using Jenkins as our CI server. Jenkins is a classical choice
-when it comes to CI. It's highly configurable and it plays nice with tools we need, such as
+Here we are going to be using Jenkins as our CI server.
+Jenkins is a classical choice when it comes to CI. It's highly configurable and it plays nice with tools we need, such as
 Docker, Kubernetes and AWS.
 
 # About the book
@@ -49,12 +50,12 @@ In the book you'll find example scripts, templates, shell commands and a lot of
 other information that should help you to build your system.
 
 We are going to use a simple Rails application as an example. We are going to
-scaffold a resource so we have migrations to play with and also to create records
+scaffold a resource so we have migrations to play with and also create records
 along the way to test our endpoints.
 This scaffold will also generate a couple of tests, with which we are going to add
-a build step that run our test in the CI pipeline. We want to reject deployments
+a build step that run our tests in the CI pipeline. We want to reject deployments
 with code that breaks our tests.
 
 I recommend you to read both, Kubernetes and ECS sections, so you can compare
-the different approaches and make an smart decision on which platform you'll use.
-Also, some of the things are explored in a deeper way on some of those sections.
+the different approaches and make a smart decision on which platform you'll use.
+Also, some of the things are explored in a deeper way in some of those sections.
