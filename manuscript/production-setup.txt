@@ -6,9 +6,9 @@ It can be very challenging to configure a cluster by hand, even if you use
 modern tools like Kubernetes. You have to configure the way your nodes
 are going to join the cluster and communicate to each other, the service
 discovery mechanism and the integration with the extra tools the Cloud offers, like
-load balancing and persistent storages.
+Load Balancers and persistent storages.
 
-With Kubernetes and ECS, you can launch a cluster without worry about this issues.
+With Kubernetes and ECS, you can launch a cluster without worrying about this issues.
 Even if you want to build a high-availability cluster, distributed among several regions, 
 you'll have high level tools for accomplish that without having to deep to heavy into
 networking issues.
@@ -20,19 +20,19 @@ available in our AWS account.
 
 If you don't have an AWS account, you can go to the [official page](https://aws.amazon.com/)
 and create one now. It's going to be necessary for the following steps.
-Keep in mind although you have a free-tier for some resource until certain limits, we are going
+Keep in mind although you have a free-tier for some resources until certain limits, we are going
 to be using resources that don't fall into that category, so you will be billed
 for the time you run this resources, but don't worry. You can launch as many servers, Load Balancers, 
-or S3 buckets you want, and you'll have a small bill as long you deleted all after you're done.
+or S3 buckets you want, and you'll have a small bill as long you delete all after you're done.
 
 ## Installing the AWS CLI
 
 The [official documentation](http://docs.aws.amazon.com/cli/latest/userguide/installing.html)
 discuses several methods to install the tool according to your operating system.
-Once dependency that you would need on your system is python.
+One dependency that you would need on your system is python.
 
 In my case I'm using MacOs. If you're also using MacOs or linux, you can
-use the `AWS CLI Bundled Installer` and install aws on your system with
+use the `AWS CLI Bundled Installer` and install AWS CLI on your system with
 the following commands:
 
     $ curl "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip"
@@ -41,7 +41,7 @@ the following commands:
 
 If you're on windows, you would have to use `pip` and install the `awscli` package.
 
-After running those commands, I can run:
+After executing those commands, run:
 
     $ aws --version
 
@@ -49,18 +49,18 @@ Output:
 
     aws-cli/1.10.66 Python/2.7.10 Darwin/16.0.0 botocore/1.4.56
 
-So I have the tool correctly installed.
+So the tool is correctly installed.
 
 ## Configuring the AWS CLI
 
 Before configuring the AWS CLI, you need to get an access key and secret access key
 for your account. This are personal tokens that will allow third-party applications or
 the AWS CLI, to manage resources on your behalf.
-In order to get this tokens, go to the [documentation](http://docs.aws.amazon.com/general/latest/gr/managing-aws-access-keys.html)
+In order to get these tokens, go to the [documentation](http://docs.aws.amazon.com/general/latest/gr/managing-aws-access-keys.html)
 and follow the steps. This shouldn't take too long since all the process
 gets done via the AWS graphical interface.
 
-Once you have you tokens, go back to your console and run:
+Once you have your tokens, go back to your console and run:
 
     $ aws configure
 
@@ -70,7 +70,7 @@ Once you have you tokens, go back to your console and run:
     Default output format [None]: json
 
 And add your own configuration. It's also a good idea to set the default region
-immediately so you don't have to put with every command you run.
+immediately so you don't have to put it with every command you run.
 
 After running this command, you're credentials will be save under `~/.aws/credentials`:
 
@@ -86,7 +86,7 @@ And your configuration under `/.aws/config`:
 
 In case you wonder, `default` is your default profile. You can have several
 profiles which are associated to different AWS accounts. So for example, you can
-configure a profile for work, an another that's personal by using different sections
+configure a profile for work, and another which can be for personal use by using different sections
 in the files:
 
     [default]
@@ -101,13 +101,13 @@ The default profile will be used if don't specify any when running commands.
 If you want to run commands using an specific profile, you just have to
 add the flag `--profile another-profile` to every command.
 
-Now that we have this tool configured, Kubernetes can use it for launching our cluster, 
+Now that we have this tool configured, Kubernetes can use it to launch the cluster, 
 and we can also use it for managing our ECS resources.
 
-All the operations that you do with the AWS CLI can also be done using the graphical interface.
+All the operations you do with the AWS CLI can also be done using the graphical interface.
 The big advantage of using the CLI is that you can save your commands for avoiding
 repetition and also you can automate almost everything you want. So for example, you can
-create a Load Balancer by following a Wizard and repeat that process for all the Load Balancers you need, 
+create a Load Balancer by following a graphical wizard and repeat that process for all the Load Balancers you need, 
 or you can figure out how to do it by using the AWS CLI, save that command and run it
 every time you need a new one.
 
@@ -118,10 +118,10 @@ We can use a couple of tricks for querying specific fields or filter by
 specific elements we need.
 
 One of the options we'll be using heavily during this book is the `--query` options.
-With this options you can navigate trough the response, to an specific part
-that you want to see. For example, let's say you want to use all your VPCs ids and tags.
+With this option you can navigate trough the response, to an specific part
+that you want to see. For example, let's say you want to see all your VPCs IDs and tags.
 You can use the `describe-vpcs` command, but if you run it without a query, you'll
-have too much input. 
+have too much output. 
 If you want to be more specific and you know which are the fields you want, you can
 do something like:
 
@@ -149,9 +149,9 @@ That will give a result like this:
 Much better. Then once you refine your queries, you can save those commands
 for posterior use.
 
-Let's see another example. Suppose you have a Database instance, you know its identifier
+Let's see another example. Suppose you have a Database instance. You know its identifier
 and you want to know its status. You can use the `describe-db-instances` command, but it'll
-also give a big output. Let's add query option:
+also give a big output. Let's add the query option:
 
     $ aws rds describe-db-instances --db-instance-identifier webapp-postgres --query 'DBInstances[*].{Status:DBInstanceStatus}'
 
@@ -163,10 +163,10 @@ That will only return the DB status:
         }
     ]
 
-Another important options if the filter options. Normally you'll have a certain set of filters
+Another important options is the filter options. Normally you'll have a certain set of filters
 for an specific command. You want to use filters when you have several elements and you need
-information about a specific one. For example, you need the Ids of a group of subnets for an specific
-VPC. You want to use the `describe-subnets` command, without filters it's going to return all your Subnets from 
+information about a specific one. For example, you need the IDs of a group of subnets for an specific
+VPC. You want to use the `describe-subnets` command. Without filters it's going to return all your Subnets from 
 all VPCs. Let's add a filter to get the ones for a specific VPC:
 
     $ aws ec2 describe-subnets --filters "Name=vpc-id,Values=vpc-a0e9c0c7" --query="Subnets[*].SubnetId"
@@ -178,7 +178,9 @@ all VPCs. Let's add a filter to get the ones for a specific VPC:
             "subnet-e0906cbb"
         ]
 
-That's going to return the SubnetIds for that specific VPC.
+That's going to return the SubnetIds for that specific VPC. For the filter options, you
+have to pass the name of the filter, which are pre-defined in the documentation, and then the
+values for applying that filter.
 
 Known how to manipulate the output of the AWS CLI can help you a lot. 
 This tool has a great documentation. You can use the online documentation
