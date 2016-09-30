@@ -57,7 +57,7 @@ Then we need to add the permissions for that pem:
 
 Save this key in a safe folder. I like to keep my key pairs in `~/.ssh/keys`.
 
-The instance we want to use has to launched in a VPC. We are going to use the same
+The instance we want to use has to be launched in a VPC. We are going to use the same
 VPC where our cluster lives. If you don't remember how to get the security group
 and a subnet id for this VPC, you can go back to the section where we created
 a Database for our application running with ECS. You'll ned your security group id
@@ -320,8 +320,8 @@ Let's see if `kubectl` is correctly configured by getting the nodes of the clust
 
 Great! Now we have to configure the AWS CLI. This is going to be as simple
 as it was with `kubectl`. If you remember, the configuration for this tool
-lives in the file `~/.aws/credentials` and `~/.aws/config. We also have to copy our local files
-that contains the access tokens for our account and our preferences to files in the home of the Jenkins user.
+lives in the file `~/.aws/credentials` and `~/.aws/config`. We also have to copy our local files
+that contain the access tokens for our account and our preferences to files in the home of the Jenkins user.
 Let's create the folder and files in the server. Remember you have to be logged in as the Jenkins user:
 
     # mkdir -p ~/.aws
@@ -455,7 +455,7 @@ Click on `Build Now` and you will see the Job starting:
 ![Job Configuration](images/ci/9-k8s-job-running.png)
 
 Click on the Job and then go to `Console Output` to inspect the logs. There
-you should see all the output we used to watch from our local machine but this
+you should see all the output we used to inspect from our local machine but this
 time running on the Jenkins server:
 
 ![Job Configuration](images/ci/10-k8s-console-output.png)
@@ -491,9 +491,9 @@ will be triggered for the associated Job we just configure.
 ### Running the test suite
 
 A big part in Continuous Integration is testing.
-With Jenkins we have the possibility to run our test before updating our application.
+With Jenkins we have the possibility to run the tests before updating our application.
 
-We'll use docker-compose to run our test before we push the image to DockerHub.
+We'll use Docker Compose to run our tests before we push the image to DockerHub.
 It doesn't have much sense to push a broken image. So this workflow will be:
 
 - We push bad code to GitHub and trigger a new deploy
@@ -502,12 +502,12 @@ It doesn't have much sense to push a broken image. So this workflow will be:
 - Jenkins waits for the status code of the test container
 - If status is different than 0, the deployment stops.
 
-First, let's try to run our tests locally with docker-compose. We'll have to
+First, let's try to run our tests locally. We'll have to
 create our test database in case it doesn't exists, and also run the migrations.
 On your local machine run:
 
-$   $ docker-compose run --rm webapp bin/rails db:create RAILS_ENV=test
-$   $ docker-compose run --rm webapp bin/rails db:migrate RAILS_ENV=test
+    $ docker-compose run --rm webapp bin/rails db:create RAILS_ENV=test
+    $ docker-compose run --rm webapp bin/rails db:migrate RAILS_ENV=test
 
 And now let's run the tests:
 
@@ -523,7 +523,7 @@ Output:
 
 Great! We have our tests passing locally. This was just to be sure that we have a test suite ready.
 
-Let's create a docker-compose file for the testing environment and a script for running a custom entrypoint
+Let's create a Docker Compose file for the testing environment and a script for running a custom entrypoint
 (you can create these files in your root application folder):
 
     $ touch docker-compose.test.yml
@@ -730,7 +730,7 @@ is that we already have pretty much all that we need. Similar to the Kubernetes 
 we are going to use the automation scripts we have and we'll add the same step
 to run the test suite.
 
-Now, changes are you are only going to use or Kubernetes or ECS, but not both. So
+Now, chances are you are only going to use or Kubernetes or ECS, but not both. So
 while we build this ECS pipeline, we'll have to change code that's going to invalidate
 the Kubernetes pipeline. For example, the database host is not the same. For kubernetes
 we were using an internal service with an alias of `postgres`, and for ECS we are
@@ -739,7 +739,7 @@ Also, we cannot trigger two different hooks for our GitHub repo because we would
 building a wrong image for one the platforms.
 With all of that said, let's begin.
 
-Go to the Jenkins home and create another Job. This time give it the name `webapp-ecs-
+Go to the Jenkins home and create another Job. This time give it the name `webapp-ecs`
 and choose `Freestyle project`. If you have doubts with the graphical interface for Jenkins, take a look
 on the Configuring a Job for Kubernetes section. There you can see a couple of screenshots
 of the steps. Click on `OK`.
