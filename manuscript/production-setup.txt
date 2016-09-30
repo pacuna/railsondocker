@@ -1,4 +1,4 @@
-# Production setup
+# Setting up tools for Production
 
 One of the reasons why a lot of people enjoy using tools like Kubernetes
 and ECS, is because their integration with Cloud Providers.
@@ -110,3 +110,78 @@ repetition and also you can automate almost everything you want. So for example,
 create a Load Balancer by following a Wizard and repeat that process for all the Load Balancers you need, 
 or you can figure out how to do it by using the AWS CLI, save that command and run it
 every time you need a new one.
+
+## Tips for using the AWS CLI
+
+Sometimes you'll have a substantial amount of output after running commands.
+We can use a couple of tricks for querying specific fields or filter by
+specific elements we need.
+
+One of the options we'll be using heavily during this book is the `--query` options.
+With this options you can navigate trough the response, to an specific part
+that you want to see. For example, let's say you want to use all your VPCs ids and tags.
+You can use the `describe-vpcs` command, but if you run it without a query, you'll
+have too much input. 
+If you want to be more specific and you know which are the fields you want, you can
+do something like:
+
+    $ aws ec2 describe-vpcs --region us-east-1 --query="Vpcs[*].{ID:VpcId,tags:Tags[0]}"
+
+That will only return the ID and the Tags for your VPCs. The `--query="Vpcs[*].{ID:VpcId,tags:Tags[0]}"`
+can be interpreted like this: for all my VPCs (Vpcs[*]) fetch the VpcId with an alias
+of ID (ID:VpcId) and the first tag with an alias of tags (tags:Tags[0]).
+That will give a result like this:
+
+    [
+        {
+            "ID": "vpc-e61cec82",
+            "tags": null
+        },
+        {
+            "ID": "vpc-a0e9c0c7",
+            "tags": {
+                "Value": "amazon-ecs-cli-setup-ecs-cluster",
+                "Key": "aws:cloudformation:stack-name"
+            }
+        }
+    ]
+
+Much better. Then once you refine your queries, you can save those commands
+for posterior use.
+
+Let's see another example. Suppose you have a Database instance, you know its identifier
+and you want to know its status. You can use the `describe-db-instances` command, but it'll
+also give a big output. Let's add query option:
+
+    $ aws rds describe-db-instances --db-instance-identifier webapp-postgres --query 'DBInstances[*].{Status:DBInstanceStatus}'
+
+That will only return the DB status:
+
+    [
+        {
+            "Status": "Running"
+        }
+    ]
+
+Another important options if the filter options. Normally you'll have a certain set of filters
+for an specific command. You want to use filters when you have several elements and you need
+information about a specific one. For example, you need the Ids of a group of subnets for an specific
+VPC. You want to use the `describe-subnets` command, without filters it's going to return all your Subnets from 
+all VPCs. Let's add a filter to get the ones for a specific VPC:
+
+    $ aws ec2 describe-subnets --filters "Name=vpc-id,Values=vpc-a0e9c0c7" --query="Subnets[*].SubnetId"
+
+    Output:
+
+        [
+            "subnet-3a09f717",
+            "subnet-e0906cbb"
+        ]
+
+That's going to return the SubnetIds for that specific VPC.
+
+Known how to manipulate the output of the AWS CLI can help you a lot. 
+This tool has a great documentation. You can use the online documentation
+or use the `help` command and use the documentation on your console.
+If at any point you have doubts with a command that we use during the book, just
+jump to the documentation to get more information.
