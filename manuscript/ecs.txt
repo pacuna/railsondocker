@@ -773,6 +773,34 @@ you can attach a Load Balancer to them. This will allow us to update our
 service and task definitions during deployments while keeping the address
 of the service.
 
+One important thing is that we need a path where the Load Balancer can check if
+the container to which the requests are being routed is responding correctly.
+By default, the Load Balancer will hit the root path of our application. Since
+we don't have any action taking care of that route, on production is going to respond
+with a not found status code, which will produce a fail with the health check.
+
+Let's fix that by quickly adding an action that responds with a 200 status code
+for that path.
+
+In the routes file add the following route:
+
+    get '/', to: "pages#welcome"
+
+Create a new controller:
+    
+    $ touch app/controllers/pages_controller.rb
+
+And add the following to it:
+
+    class PagesController < ApplicationController
+      def welcome
+        render json: {message: 'hello!'}, status: 200
+      end
+    end
+
+And that's it. Now our base path will responds with a 200 status code if the container
+starts correctly and the Load Balancer will be attached with no problems.
+
 We can create a Load Balancer in the VPC with (replace with your cluster's
 security group id and a subnet id in your VPC):
 
@@ -962,3 +990,156 @@ In the next section we will see our to run updated to our application and how
 we can automate those updates with a little bit of bash scripting.
 
 ## Running updates to our application
+
+Same we did with Kubernetes, we want to using a couple of automated scripts
+to run updates for our application. We have to be able to automate two things:
+migrate our database in case there are new migrations, and after building a new
+version of our image, create a new task definition revision with that new tag
+and update our service to use that new task definition.
+
+First, let's create a new deploy folder inside of the `ecs` folder to keep these
+scripts and two empty files. One for pushing and one to migrate:
+
+    $ mkdir ecs/deploy
+    $ touch ecs/deploy/push.sh
+    $ touch ecs/deploy/migrate.sh
+    $ chmod +x ecs/deploy/*
+
+Add the following to the push.sh file:
+
+    #!/bin/sh
+    set -x
+
+    LC=$(git rev-parse --short HEAD)
+    docker build -f Dockerfile -t pacuna/webapp:${LC} .
+    docker push pacuna/webapp:${LC}
+
+    # replace LAST_COMMIT with latest commit hash output the result to a tmp file
+    sed "s/webapp:LAST_COMMIT/webapp:$LC/g" ecs/task-definitions/webapp.json > webapp.json.tmp
+
+    # register the new task definition and delete the tmp file
+    aws ecs register-task-definition --cli-input-json file://webapp.json.tmp
+    rm webapp.json.tmp
+
+    # update the service
+    aws ecs update-service --service webapp-service --task-definition webapp --desired-count 1 --cluster ecs-cluster
+
+Similar to what we did with Kubernetes, we are tagging our newest image with
+the latest commit hash. Then we are using the `sed` tool replace a placeholder
+with the string `LAST_COMMIT` in our task definition template with the latest
+image and its tag. We output that new file to a temp file, register a new
+task definition with it and then updating the service. When we update the service
+is not necessary to pass the revision number for the family name. If we don't pass one, 
+the service will use the latest active revision number, which will be the one we are
+deploying at that moment.
+If you see the desired-count, you'll see that we are only deploying one replica.
+That's because currently we have a replica running in the cluster and it's using
+the port 80. We cannot deploy 2 more replicas since we only have 2 instances in this cluster
+and this type of Load Balancer (classic) doesn't support dynamic port mapping
+which allows to have several containers exposing the same port to a port
+in the Load Balancer. If you want to have more replicas running, you should add
+more instances to the cluster.
+
+Now we have to modify our task definition and add the placeholder.
+Open `ecs/task-definitions/webapp.json` and modify the image name to:
+
+    "image": "pacuna/webapp:LAST_COMMIT"
+
+And that's it for the push.sh file. Let's go with the migrate.sh.
+Add the following to the `ecs/deploy/migrate.sh`:
+
+    #!/bin/sh
+    set -x
+    aws ecs run-task --task-definition webapp --overrides file://ecs/task-definitions/migrate-overrides.json --cluster ecs-cluster
+
+Pretty simple. We are just running the same command we ran to migrate our database.
+Again, we can just skip the revision number and ECS will run a copy with the latest
+revision. This simple command will run our latest migrations if there are.
+
+Now you can test those scripts by committing your changes:
+
+    $ git add -A
+    $ git commit -m 'add deploy scripts for ecs'
+
+And executing the files:
+
+    $ ./ecs/deploy/push.sh
+
+    ++ git rev-parse --short HEAD
+    + LC=1cc4379
+    + docker build -f Dockerfile -t pacuna/webapp:1cc4379 .
+    Sending build context to Docker daemon 24.47 MB
+    Step 1 : FROM phusion/passenger-ruby23:0.9.19
+     ---> 6841e494987f
+     (truncated)
+    ...
+    + docker push pacuna/webapp:1cc4379
+    The push refers to a repository [docker.io/pacuna/webapp]
+    692dc46ce0e9: Pushed
+    b3e13bc936af: Pushing [======================>                            ] 10.46 MB/23.17 MB
+    25c9e91cead0: Pushed
+    7570593f934a: Pushing [====================>                              ] 9.678 MB/23.17 MB
+    (truncated)
+    ...
+    {
+        "service": {
+            "status": "ACTIVE",
+            "taskDefinition": "arn:aws:ecs:us-east-1:586421825777:task-definition/webapp:8",
+            "pendingCount": 0,
+            "loadBalancers": [
+                {
+                    "containerName": "webapp",
+                    "containerPort": 80,
+                    "loadBalancerName": "webapp-load-balancer"
+                }
+            ],
+    ...
+
+And the migrate:
+
+    $ ./ecs/deploy/migrate.sh
+
+    {
+        "failures": [],
+        "tasks": [
+            {
+                "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a7128bec-43e9-4773-8425-698419d86db3",
+                "overrides": {
+                    "containerOverrides": [
+                        {
+                            "environment": [
+                                {
+                                    "name": "PASSENGER_APP_ENV",
+                                    "value": "production"
+                                }
+                            ],
+                            "command": [
+                                "bin/rails",
+                                "db:migrate",
+                                "RAILS_ENV=production"
+                            ],
+                            "name": "webapp"
+                        }
+                    ]
+                },
+                "lastStatus": "PENDING",
+                "containerInstanceArn": "arn:aws:ecs:us-east-1:586421825777:container-instance/edd5e9a7-7f29-43a6-98c1-b7d7dd912cd2",
+                "createdAt": 1475198720.749,
+                "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/ecs-cluster",
+                "desiredStatus": "RUNNING",
+                "taskDefinitionArn": "arn:aws:ecs:us-east-1:586421825777:task-definition/webapp:8",
+                "containers": [
+                    {
+                        "containerArn": "arn:aws:ecs:us-east-1:586421825777:container/bf8c369b-666a-42c6-8a3b-b57cca400c1b",
+                        "taskArn": "arn:aws:ecs:us-east-1:586421825777:task/a7128bec-43e9-4773-8425-698419d86db3",
+                        "lastStatus": "PENDING",
+                        "name": "webapp"
+                    }
+                ]
+            }
+        ]
+    }
+
+And that's it! Later we are going to use these scripts for building a pipeline
+with Jenkins. Jenkins will execute the scripts after every deploy we make to
+a GitHub branch.
