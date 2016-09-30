@@ -24,12 +24,84 @@ unless it's a very specific case where it actually make sense. Normally
 you want to have one container per Pod.
 For our application, we'll use different Pods for our web app and for PostgreSQL.
 
+An example template for a Pod for our application is:
+
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: webapp
+      labels:
+        name: webapp
+    spec:
+      containers:
+      - image: pacuna/webapp:d15587c
+        name: webapp
+        env:
+        - name: PASSENGER_APP_ENV
+          value: production
+        ports:
+        - containerPort: 80
+          name: webapp
+        imagePullPolicy: Always
+
+As you can see, we always start by declaring the API version we want to use.
+Then we declare the type of object. The good thing about declaring the type in the 
+template, is that then you can run any template with the same command, and Kubernetes
+will figure out what type of object you're creating.
+The labels will help the Replica Set to identify which Pods should be associate with.
+All the Kubernetes architecture is based on metadata. A pod will have some metadata that will
+allow it to be related to a Replica Set. Then the Replica Set will have metadata that will allow 
+a Service to route requests to it. Finally, a Deployment will also know which Replica Sets
+are associated to it via metadata.
+
+The specifications section is pretty similar to a Docker Compose template.
+We declare the image we need, environmental variables, ports we want to expose and extra
+information. In this case we're adding an `imagePullPolicy` of always, so the container
+is always pulled.
+
 ### Replica Set
 
 This object manages our desired number of replicas for a Pod.
 For example we can specify that we need at least 3 replicas for certain Pod. Then
 the Replica Set will make sure that these 3 replicas are always up. If one Pod
 dies for any reason, the Replica Set will create a new one.
+
+An example Replica Set for our application is:
+
+    apiVersion: extensions/v1beta1
+    kind: ReplicaSet
+    metadata:
+      name: webapp
+      labels:
+        app: webapp
+    spec:
+      replicas: 3
+      template:
+        metadata:
+          labels:
+            app: webapp
+            tier: frontend
+        spec:
+          containers:
+          - image: pacuna/webapp:d15587c
+            name: webapp
+            env:
+            - name: PASSENGER_APP_ENV
+              value: production
+            ports:
+            - containerPort: 80
+              name: webapp
+            imagePullPolicy: Always
+
+
+The Replica Set also uses metadata in order to identify the Pods in the set.
+As you can see, you can add the Pod declaration inside of the Replica Set
+specification. This type of embed is typical in Kubernetes configuration and can
+help you to avoid having too many files that you need to update when a new
+image is available for your app. Later you'll see that with just one file we can
+have an entire system to launch.
+An important part of the specification of a Replica Set is the `replicas` property.
+As you can imagine, this number controls the number of Pods for this Set.
 
 ### Jobs
 
@@ -47,6 +119,32 @@ before a new deploy. Instead of running these tasks in the same web app containe
 by launching independent Jobs and that way avoid collisions in the case we launch several
 web application Pods.
 
+This is an example for a Job that runs migrations for our web application:
+
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: setup
+    spec:
+      template:
+        metadata:
+          name: setup
+        spec:
+          containers:
+          - name: setup
+            image: pacuna/webapp:ec4421
+            command: ["./bin/rails",  "db:migrate", "RAILS_ENV=production"]
+            env:
+            - name: PASSENGER_APP_ENV
+              value: production
+          restartPolicy: Never
+
+The specification is pretty similar to a Pod specification. We have to use the same
+image that we have for our application, since it need to be up-to-date with the latest
+migrations and also needs the configuration for writing to the database.
+Like I mention before, this Job will run until completes. After it completes it won't
+never be restarted until you run it again. We make sure of that by adding a `restartPolicy` of Never.
+
 ### Volumes
 
 This object is pretty similar to what we know as Volumes in Docker.
@@ -62,6 +160,50 @@ On the other side, if you mount a volume using something like EBS, then it's alw
 going to be that same external storage unit and you won't have any issues if your
 container launches on different machines every time.
 
+For example, this is the specification for a PostgreSQL container with an associated
+EBS Volume that was created previously:
+
+    spec:
+      containers:
+      - image: postgres:9.5.3
+        name: postgres
+        env:
+        - name: POSTGRES_PASSWORD
+          value: mysecretpassword
+        - name: POSTGRES_USER
+          value: webapp
+        - name: POSTGRES_DB
+          value: webapp_production
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        ports:
+        - containerPort: 5432
+          name: postgres
+        volumeMounts:
+          - name: postgres-persistent-storage
+            mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-persistent-storage
+          awsElasticBlockStore:
+            volumeID: vol-fe268f4a
+            fsType: ext4
+
+The relevant part is:
+
+        volumeMounts:
+          - name: postgres-persistent-storage
+            mountPath: /var/lib/postgresql/data
+    volumes:
+    - name: postgres-persistent-storage
+      awsElasticBlockStore:
+        volumeID: vol-fe268f4a
+        fsType: ext4
+
+The `volumes` part declares the Volume we want to use. In this case we use the ID
+that AWS assigned to that EBS. Then inside the Pod's specification, we can add
+a `volumeMounts` section indicating the name of the volume we want to use, and the path
+that we want to be persisted.
+
 ### Services
 
 A service is going to give us a static end point for our Replica Sets and Pods.
@@ -76,6 +218,27 @@ necessary if you want to have a public end point for your application.
 Kubernetes also has a nice integration with AWS ELBs. You can declare that your
 service should be a Load Balancer and Kubernetes will create and associate one automatically.
 
+This is an example for a Load Balancer service for our web app:
+
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: webapp
+      labels:
+        app: webapp
+    spec:
+      ports:
+        - port: 80
+      selector:
+        app: webapp
+        tier: frontend
+      type: LoadBalancer
+
+Pretty simple, besides de metadata, we indicate we want to expose the port 80
+and the type should be a Load Balancer. Like I said before, Kubernetes
+will create a new ELB in our AWS account and it'll associated to the Pods
+that match the metadata with this service.
+
 ### Deployments
 
 Deployments were introduced in one of the latest Kubernetes releases. It can
@@ -85,6 +248,46 @@ In a Deployment declaration, you can have your Replica Set and Pod specification
 declared together. The deployment will be in charge of running updates to the states
 of these elements. So you can update the image in your Deployment, and the 
 respective Replication Set and Pods will be updated as well.
+
+Let's see an example deployment for PostgreSQL:
+
+    apiVersion: extensions/v1beta1
+    kind: Deployment
+    metadata:
+      name: postgres
+      labels:
+        app: webapp
+    spec:
+      strategy:
+        type: Recreate
+      template:
+        metadata:
+          labels:
+            app: webapp
+            tier: postgres
+        spec:
+          containers:
+          - image: postgres:9.5.3
+            name: postgres
+            env:
+            - name: POSTGRES_PASSWORD
+              value: mysecretpassword
+            - name: POSTGRES_USER
+              value: webapp
+            - name: POSTGRES_DB
+              value: webapp_production
+            ports:
+            - containerPort: 5432
+              name: postgres
+
+This Deployment template contains a Replica Set and Pod in its specification.
+With this individual file, you can have a Pod, Replica Set and run updated
+to both with only one command. We have to add a couple of extra properties, like
+the strategy to run updates, which in this case should be Recreate since we don't to have
+more than one of this Pod running at the same time, but you can also use `RollingUpdate` which
+will do the opposite.
+
+Using Deployments it's recommended over using Replication Sets and Pods independently.
 
 ## Structuring the files
 
