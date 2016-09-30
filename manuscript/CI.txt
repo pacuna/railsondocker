@@ -473,6 +473,8 @@ the Load Balacer DSN with `kubectl describe service webapp`
 Cool! The only missing thing is to add a Webhook to our GitHub repository, so
 a push to master triggers a deploy.
 
+### Push to deploy
+
 Go to your GitHub repository, click on `Settings` -> `Integration & Services` and then
 `Add service`. Look for the Jenkins (GitHub Plugin) and select.
 Then in the `Jenkins hook url` add the following (replace with your Jenkins IP address):
@@ -486,7 +488,7 @@ will be triggered for the associated Job we just configure.
 
 ![Hook Configuration](images/ci/12-k8s-hook.png)
 
-## Running the test suite
+### Running the test suite
 
 A big part in Continuous Integration is testing.
 With Jenkins we have the possibility to run our test before updating our application.
@@ -720,3 +722,89 @@ You may want to version all of the scripts that you use in your Jenkins steps.
 It's better to keep those scripts in your applications and only call the
 file instead of writing the bash code in Jenkins. But that's up to you. I'm only showing
 you some ideas that can help you to write your customized scripts.
+
+## Configuring a Job for ECS
+
+This configuration will also be pretty straightforward. The advantage we have 
+is that we already have pretty much all that we need. Similar to the Kubernetes Job,
+we are going to use the automation scripts we have and we'll add the same step
+to run the test suite.
+
+Now, changes are you are only going to use or Kubernetes or ECS, but not both. So
+while we build this ECS pipeline, we'll have to change code that's going to invalidate
+the Kubernetes pipeline. For example, the database host is not the same. For kubernetes
+we were using an internal service with an alias of `postgres`, and for ECS we are
+using an RDS endpoint.
+Also, we cannot trigger two different hooks for our GitHub repo because we would be
+building a wrong image for one the platforms.
+With all of that said, let's begin.
+
+Go to the Jenkins home and create another Job. This time give it the name `webapp-ecs-
+and choose `Freestyle project`. If you have doubts with the graphical interface for Jenkins, take a look
+on the Configuring a Job for Kubernetes section. There you can see a couple of screenshots
+of the steps. Click on `OK`.
+
+For the general section, select `GitHub project` an add the project URL.
+In my case I'll use `https://github.com/pacuna/webapp/`.
+
+In the Source Code Management section, select Git and add the same repository URL.
+If you haven't configured you GitHub credentials, click on add and fill out with your Github
+username and password. Then select those credentials for your repo. If the credentials
+aren't working, you'll see an error.
+
+In the Build Triggers section, choose `Build when a change is pushed to GitHub`.
+
+Now skip to the Build section and add a build step of type `Execute Shell`.
+Add the following script to the text area:
+
+    #!/bin/bash          
+    set -e
+
+    ./ecs/deploy/push.sh && ./ecs/deploy/migrate.sh
+
+As you can see, we are calling our two scripts that will update the cluster with
+the latest code.
+Jenkins will pull the latest changes from GitHub and using those scripts will build
+a new Docker image, push it to DockerHub and then update the task definition and service
+in our cluster.
+
+And that's it. Click on `Apply` and then `Save`.
+
+Now in your Project page, click on `Build Now` in the sidebar. This will start a new
+build for the project.
+Click on the new Job that started and then click on `Console Output`. You should
+see the entire deployment. From the pull from GitHub, to the update of the task definition
+and service, just like on our machine.
+
+### Running the test suite
+
+Now let's add another build step that's going to run our tests.
+Go back to your project's configuration page, and add a new Build Step of the same
+type `Execute Shell`, and put it on before the other build step. We want to
+run the test suite before creating the new image.
+Add the following in the text area:
+
+    #!/bin/sh
+
+    # create test environment
+    docker-compose -f docker-compose.test.yml build
+    docker-compose -f docker-compose.test.yml run --rm webapp_test
+
+    # check the last status code
+    if [ $? -eq 0 ]
+    then
+            echo "All tests passed! :)"
+    else
+            echo "Tests failed! :("
+        exit 1
+    fi
+
+If you haven't created the docker-compose.test.yml along with the setup.test.sh
+file, go to the test suite part of the Kubernetes Job's section.
+That script will run our test suite and check for the status code of the process.
+If the tests fail, the deploy will be interrupted. If the tests pass, the deployment
+will continue and the new image will be deployed in the cluster.
+
+The final part is to create a Hook for triggering build when pushing to the GitHub
+repository. For that, please take a look on the Push to Deploy section
+for the Kubernetes Job. The process is the same.
