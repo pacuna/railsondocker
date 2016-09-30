@@ -1,5 +1,7 @@
 # ECS
 
+## Concepts
+
 ## Configuring the ecs-cli
 
 Currently there are two ways of creating an ECS cluster. You can use
