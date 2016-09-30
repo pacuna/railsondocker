@@ -2,6 +2,126 @@
 
 ## Concepts
 
+Although every container orchestration framework uses their own specific
+language for their concepts, they all try to solve the same issues. That's
+why you'll find some similarities between ECS and Kubernetes but also a couple
+of differences in the way the solve the issues.
+One strong point in favor of ECS, is that because it's a native AWS technology, 
+it is completely integrated with the other components, like VPCs, EC2, ELBs, Route53, etc.
+The main issue with ECS is that would be coupled to AWS, since currently you can't run
+an ECS cluster on other cloud providers, which makes sense since it's an Amazon technology.
+
+Let's review the main concepts in ECS. 
+
+### Container Instance
+
+A container instance is just a regular EC2 instance that is attached to the cluster.
+You can create a cluster using a tool called `ECS CLI` and declare the number of instances you want, 
+and they will be attached automatically. You can also use the graphical interface in the ECS panel and
+use a wizard to create a new cluster.
+Finally if you prefer to create your instances by hand, you have to initialize them
+with some extra data that will attached to the cluster.
+In this book we will be using the ECS CLI tool to create our cluster.
+
+### Task Definition
+
+A Task Definition is the template where we declare a group of containers that'll
+run on the same instance. You'll probably will be running just one container per
+task definition, but it's good to know that you can run more than one container if you wish to.
+An example task definition for our application is:
+
+    {
+        "family": "webapp",
+        "containerDefinitions": [
+            {
+                "name": "webapp",
+                "image": "pacuna/webapp:345opj",
+                "cpu": 500,
+                "memory": 500,
+                "portMappings": [
+                    {
+                        "containerPort": 80,
+                        "hostPort": 80,
+                        "protocol": "tcp"
+                    }
+                ],
+                "essential": true,
+                "environment": [
+                    {
+                        "name": "PASSENGER_APP_ENV",
+                        "value": "production"
+                    }
+                ]
+            }
+        ]
+    }
+
+We start by declaring a family. This family along with a revision number will
+identify a task definition. Every time you make a change to the same task definition, 
+a new revision will be created. Then when you want to run a task, you can specify the
+family and revision number. If you don't, ECS will run the latest active revision.
+Then you have the container definitions. The elements are pretty similar to a
+Docker Compose declaration. We have to indicate the image, the ports and the
+environmental variables we want to use. We also have to specify the requirements
+for this task, for example the CPU units and the memory limit for the container. This
+will help us to control the resources in our instances.
+
+In order to run a task definition, first you have to register it, and then run it
+specifying the family and revision number. To register the task, you can use the command:
+
+    $ aws ecs register-task-definition --cli-input-json file://webapp.json
+
+We can directly pass the JSON file with the Task Definition. That will return the latest revision
+number ECS assigned to it.
+
+Then you can run the task with:
+
+    $ aws ecs run-task --task-definition webapp:1 --cluster ecs-cluster
+
+Indicating the family and revision number, along the name of the cluster where you want to run it.
+
+### Service
+
+The service is element that's going to give us a static end point for our running tasks.
+Normally it'll be associated with a Load Balancer so you can balance the traffic among
+your replicas. The service it's also in charge of maintaining the desired number of
+tasks running. If you read about the concepts in Kubernetes, the ECS service
+is like a mix between a Replication Set and a Kubernetes Service.
+
+If we want to associate an ELB to our service, we have to create it first. Then
+we can specify the ELB identifier in the service definition in the following way:
+
+    {
+        "cluster": "ecs-cluster",
+        "serviceName": "webapp-service",
+        "taskDefinition": "webapp:1",
+        "loadBalancers": [
+            {
+                "loadBalancerName": "webapp-load-balancer",
+                "containerName": "webapp",
+                "containerPort": 80
+            }
+        ],
+        "desiredCount": 3,
+        "role": "ecsServiceRole"
+    }
+
+We need to specify a name for the service, the task definition we want to use
+to run the tasks, the ELB specifications and the desired number of tasks that the service
+should keep running. We also have to specify the Role that ECS creates for our services.
+
+Once we have this template, we can launch the service with:
+
+    $ aws ecs create-service --cli-input-json file://webapp-service.json
+
+If later we create a new Task Definition revision and we want to update the associated
+service, we can run:
+
+    $ aws ecs update-service --service webapp-service --task-definition webapp --desired-count 3 --cluster ecs-cluster
+
+Since we didn't specify a revision number for the task, ECS will pick up the latest
+active revision and use that definition to run the tasks.
+
 ## Configuring the ecs-cli
 
 Currently there are two ways of creating an ECS cluster. You can use
