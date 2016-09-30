@@ -901,7 +901,7 @@ Now open the generated file and replace the values with the following:
                 "containerPort": 80
             }
         ],
-        "desiredCount": 2,
+        "desiredCount": 1,
         "role": "ecsServiceRole"
     }
 
@@ -938,7 +938,7 @@ Output:
                     "status": "PRIMARY",
                     "pendingCount": 0,
                     "createdAt": 1475114557.793,
-                    "desiredCount": 3,
+                    "desiredCount": 1,
                     "taskDefinition": "arn:aws:ecs:us-east-1:586421825777:task-definition/webapp:1",
                     "updatedAt": 1475114557.793,
                     "id": "ecs-svc/9223370561740218014",
@@ -972,9 +972,16 @@ command:
     X-XSS-Protection: 1; mode=block
     Connection: keep-alive
 
-Great! In case you didn't notice, we declare that we wanted two tasks as our
-desired count. The cool thing about the ELB is that is going to balance the load
-between these number of tasks. This wouldn't be able to do without a service.
+The cool thing about the ELB is that is going to balance the load
+among the number of tasks you define in your desired replicas. This wouldn't be able to do without a service.
+In our case we're only using just 1 replica, since we only have 2 nodes available. The problem
+is that this type of ELB won't allow us to have two containers exposing the same port
+on the same instance. And every time we update a service, a new container starts in the cluster
+before the old one dies. So during the deployment, there will be always a moment where
+two containers will be running and exposing the same port. On a real scenario where
+you need high availability for your application, you'll want to have a cluster with many
+more nodes, and create services that keep a higher number of replicas running
+at the same time.
 
 Let's try to create an article to see if everything is working correctly:
 
