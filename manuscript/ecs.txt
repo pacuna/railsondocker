@@ -804,7 +804,7 @@ starts correctly and the Load Balancer will be attached with no problems.
 We can create a Load Balancer in the VPC with (replace with your cluster's
 security group id and a subnet id in your VPC):
 
-    $ aws elb create-load-balancer --load-balancer-name webapp-load-balancer --listeners "Protocol=HTTP,LoadBalancerPort=80,InstanceProtocol=HTTP,InstancePort=80" --subnets subnet-3a09f717 --security-groups sg-bbe6b3c1
+    $ aws elb create-load-balancer --load-balancer-name webapp-load-balancer --listeners "Protocol=HTTP,LoadBalancerPort=80,InstanceProtocol=HTTP,InstancePort=80" --subnets subnet-3a09f717 subnet-e0906cbb --security-groups sg-bbe6b3c1
 
 Output:
 
@@ -901,7 +901,7 @@ Now open the generated file and replace the values with the following:
                 "containerPort": 80
             }
         ],
-        "desiredCount": 3,
+        "desiredCount": 2,
         "role": "ecsServiceRole"
     }
 
@@ -925,7 +925,7 @@ Output:
             ],
             "roleArn": "arn:aws:iam::586421825777:role/ecsServiceRole",
             "createdAt": 1475114557.793,
-            "desiredCount": 3,
+            "desiredCount": 2,
             "serviceName": "webapp-service",
             "clusterArn": "arn:aws:ecs:us-east-1:586421825777:cluster/ecs-cluster",
             "serviceArn": "arn:aws:ecs:us-east-1:586421825777:service/webapp-service",
@@ -972,7 +972,7 @@ command:
     X-XSS-Protection: 1; mode=block
     Connection: keep-alive
 
-Great! In case you didn't notice, we declare that we wanted three tasks as our
+Great! In case you didn't notice, we declare that we wanted two tasks as our
 desired count. The cool thing about the ELB is that is going to balance the load
 between these number of tasks. This wouldn't be able to do without a service.
 
