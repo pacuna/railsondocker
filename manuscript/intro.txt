@@ -38,6 +38,8 @@ Here we are going to be using Jenkins as our CI server. Jenkins is a classical c
 when it comes to CI. It's highly configurable and it plays nice with tools we need, such as
 Docker, Kubernetes and AWS.
 
+# About the book
+
 You should take the information given in this book as a set of ideas on how to
 implement your deployment pipelines. You're application it's going to be different, you might
 have more dependencies or it's going to require more build steps. But at the end
@@ -46,9 +48,13 @@ Kubernetes and ECS, you'll be able to create pipelines for any application.
 In the book you'll find example scripts, templates, shell commands and a lot of
 other information that should help you to build your system.
 
-# About the book
+We are going to use a simple Rails application as an example. We are going to
+scaffold a resource so we have migrations to play with and also to create records
+along the way to test our endpoints.
+This scaffold will also generate a couple of tests, with which we are going to add
+a build step that run our test in the CI pipeline. We want to reject deployments
+with code that breaks our tests.
 
-- This book is all about ideas. You app will certainly be different
-- What are we going to deploy
-- Conventions (simbology)
-- How to use the book (recommend reading both, k8s and ECS sections)
+I recommend you to read both, Kubernetes and ECS sections, so you can compare
+the different approaches and make an smart decision on which platform you'll use.
+Also, some of the things are explored in a deeper way on some of those sections.
