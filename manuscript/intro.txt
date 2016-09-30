@@ -1,0 +1,54 @@
+# Introduction
+
+There are a lot of different container orchestration platforms out there. Every one
+of them has a different set of features that set them apart.
+Choose one of these platforms can be a complex task. You have to dig into the specifics
+of each one of these to see if you like the concepts and the ways behind the framework.
+It's almost impossible to judge them without trying them for a while.
+Sadly not many people have the time to try every one of the current alternatives.
+
+On top of that problem, people spend a lot of time figuring out out to deploy an specific
+application using containers. Every web application framework out there requires
+different configuration, different initialization steps and different tasks
+to run updates. Even though there are some practices in the world of containers that could
+be considered as standards, the differences between the applications always creates a new
+problem that has to be solved in a custom way. And for this, it's critical to choose
+an orchestration platform that supports for all of these requirements and that provides
+the tools to create a smooth workflow when running updates.
+In this books you'll find steps to deploy a specific type of applications, Rails web applications.
+If you are a Rails developer, you should be pretty familiarized with the typical steps
+to run a Rails application on development and on production.
+If you don't use Rails, this books should also give you valuable information on how
+to create templates to run tasks and web application using Docker and Kubernetes and ECS
+for deployment.
+
+After you choose the right platform to deploy your application, you have to deal
+with the issue of running the whole infrastructure. You have to create and manage a cluster
+of nodes and be able to add or remove nodes when necessary. In this book you'll see
+how Kubernetes and ECS deal with this task in a very transparent way. You can launch
+an entire cluster with a couple of commands and without being an expert in issue
+like networking or DNS.
+
+Once you have your application up and running, you can build a Continuous Integration
+pipeline around it. The whole idea of this it to be able to run deployments very often
+without having downtime and making sure that we are not pushing bad code. Automated testing is 
+a big part in this structure. We should be able to run our test suite before sending our
+code to production servers. For that we also have several alternatives out there.
+Here we are going to be using Jenkins as our CI server. Jenkins is a classical choice
+when it comes to CI. It's highly configurable and it plays nice with tools we need, such as
+Docker, Kubernetes and AWS.
+
+You should take the information given in this book as a set of ideas on how to
+implement your deployment pipelines. You're application it's going to be different, you might
+have more dependencies or it's going to require more build steps. But at the end
+as a long you understand how to apply the basic concepts behind containers, and specially
+Kubernetes and ECS, you'll be able to create pipelines for any application.
+In the book you'll find example scripts, templates, shell commands and a lot of
+other information that should help you to build your system.
+
+# About the book
+
+- This book is all about ideas. You app will certainly be different
+- What are we going to deploy
+- Conventions (simbology)
+- How to use the book (recommend reading both, k8s and ECS sections)
