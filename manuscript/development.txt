@@ -8,10 +8,17 @@ architecture, you'll be pulling and pushing images to a Docker registry all the 
 it's better to have lightweight images if we want to have faster deploys.
 
 If you are an active member of the development community you probably have noticed
-that the concept of services is taking more and more importance for web applications.
+that the concept of services is taking more and more importance in web development.
 That's why we are going to be focused on these types of applications and an API
 is a good representation of a small service that can be successfully deployed
 using containers.
+
+## Dependencies
+
+The Docker and Docker Compose versions I'll be using for this section are:
+
+- Docker Version 1.12.1
+- Docker Compose version 1.8.0
 
 ## Creating the application
 
@@ -19,22 +26,26 @@ Let's create a new [api-only](http://edgeguides.rubyonrails.org/api_app.html)
 Rails application using [PostgreSQL](https://www.postgresql.org/)
 as our database. This API will be in charge of managing articles with a small
 set of fields. We just want something we can play with.
-Since this book is based on containers, I'm should you a trick to create
+Since this book is based on containers, I'll should you a couple of tricks to create
 a new Rails application without having any dependencies but Docker installed
 on your machine. 
 
 We are going to use the official [Rails image](https://hub.docker.com/_/rails/)
-from Dockerhub to create this new application. We are going to run a container
-using that image and pass an entrypoint with the `rails new` command along with some options.
+from DockerHub to create this new application. With that image we'll run a container
+and pass an entrypoint with the `rails new` command along with some options.
 
-Run the following command in your projects or code folder:
+Let's generate the app with the following command:
 
     $ docker run -it --rm --user "$(id -u):$(id -g)" -v "$PWD":/usr/src/app -w /usr/src/app \
     rails rails new --skip-bundle --api --database postgresql webapp
 
-This command will create a rails app named `webapp` in our current directory.
+This command will create a Rails app named `webapp` in our current directory. This command
+might look complicated but it's actually pretty simple. We are running a command using the `rails` image.
+We are mounting a volume from the container folder where the application is generated into
+our current folder. The --user options is necessary for permission reasons. Then we are
+overriding the entrypoint of the command, with a custom command to generate the skeleton.
 
-As you can see, we are passing the `--api` flag so Rails generates an api-only
+As you can see, in the entrypoint we are passing the `--api` flag so Rails generates an api-only
 application, and also the `--database` flag so the drivers for our database
 are pre-configured. The `--skip-bundle` flag is going to tell rails to not run
 `bundle install`. This is necessary because some gems like `pg` for the PostgreSQL
@@ -42,9 +53,10 @@ database sometimes required that we have some dependencies installed on our mach
 to get a new Rails app but without its dependencies. That's ok, since we want to install
 the dependencies in the actual container instead our machine.
 
-Now we need an extra step. Since we create the application without running `bundle install`,
-we don't have a Gemfile.lock holding the gem versioning. Our scheme requires we have
-that file. We are going to use another trick to generate the file. This time we are going to mount
+Since we created the application without running `bundle install`,
+we don't have a Gemfile.lock maintaining the gem versions. Our container approach requires we have
+that file.
+We are going to use another trick to generate the file. This time we are going to mount
 the recently created application in a ruby container and run bundle install from within the container.
 The command will generate a Gemfile.lock file which will be also in our directory product of the
 volume mount:
@@ -52,10 +64,13 @@ volume mount:
     $ cd webapp
     $ docker run --rm -v "$PWD":/usr/src/app -w /usr/src/app ruby:2.3 bundle install
 
-And that's it. Now we have our Gemfile and Gemfile.lock and application is ready to be
+This time we run a container from the `ruby:2.3` image, again mounting the current folder
+into the container and then running bundle install as the main command.
+
+And that's it. Now we have our `Gemfile` and `Gemfile.lock` and the application is ready to be
 dockerized.
 
-Sadly since we don't have any dependencies installed on our machine, we cannot test this application in the
+Since we don't have any dependencies installed on our machine, we cannot test this application in the
 typical way by running `rails s`. Remember we don't even have Rails installed. So we'll
 have to wait a little bit until we can run the `webapp` within a Docker container.
 
@@ -63,7 +78,7 @@ have to wait a little bit until we can run the `webapp` within a Docker containe
 
 With all the Docker images available these days, it's pretty easy to dockerize
 an application. In our case we only going to need something for the Rails app
-and something for PostgreSQL. For rails you have practically the same
+and something for PostgreSQL. For Rails you have practically the same
 options you have when you don't use containers for deployments (Unicorn, Puma, Passenger, etc). And for PostgreSQL
 we can use the official image from DockerHub.
 
@@ -73,15 +88,10 @@ You can have a solid production application server out of the box with that imag
 with that during this book. Keep in mind that if you choose another application server
 like `unicorn` or `puma`, the setup is going to be quite different.
 
-The Docker and Docker Compose versions I'll be using for this section are:
+First we are going to create a development environment with Docker Compose.
 
-- Docker Version 1.12.1
-- Docker Compose version 1.8.0
-
-First we are going to create a development environment by using Docker Compose.
-
-This environment is going to be just for development, since for production we want to use
-a more robust tool with cluster management like Kubernetes or ECS.
+This environment is going to be just for development. For production we want to use
+a more robust tool with cluster management support like Kubernetes or ECS.
 
 Even though we don't want to use Docker Compose for production, it's a very realistic
 scenario to see our our containers are interacting with each other and if you have a working
@@ -92,10 +102,10 @@ The application needs to be build using the phusion passenger-docker as the base
 we need a Dockerfile. This Dockerfile is also going to add the application source code
 along with other configuration files to the container.
 
-The typical configuration that you need for this image, are the nginx virtual host
-for your application and a file for declaring the environmental variables
-you may need to pass to the application. First, let's create a file for holding
-the virtual host configuration. You can create all of these files in the root of the `webapp`
+The typical configuration files that you need for this image, are the Nginx Virtual Host
+for your application and a file to declare the environmental variables
+you may need to pass to the application. First, let's create a file for the
+virtual host configuration. You can create all of these files in the root of the `webapp`
 application:
 
     $ touch webapp.conf
@@ -113,7 +123,7 @@ And add the following to that file:
         passenger_ruby /usr/bin/ruby2.3;
     }
 
-As you can see we have a very simple virtual host configuration for Nginx and passenger. This
+Here we have a very simple Virtual Host configuration for Nginx and Passenger. This
 file will be added to the available hosts of the server during the container
 build.
 
@@ -136,7 +146,7 @@ web application.
 Now we can create the Dockerfile that's going to add those files along the entire application.
 
 I've added comments for every instruction so you can know what's happening
-on every step during the build. If you still have doubts about some instructions,
+on every step during the build. If you still have doubts about some instruction,
 just go to the [official repository](https://github.com/phusion/passenger-docker)
 of the image and take a look at the documentation, it's really good.
 
@@ -196,10 +206,10 @@ couple of Rails services.
 The cool thing about this setup, is that you'll be using
 the same server for development and production, so you'll have a lot less work to do
 once you ship the application to production. This image in particular uses the `PASSENGER_APP_ENV`
-variable for setting the environment. So for example in Rails, that variable
-also controls the `RAILS_ENV` variable.
+variable to set the environment. So for example in Rails, that variable
+also controls the `RAILS_ENV` variable value.
 
-Now that we have the Dockerfile for building our application, we need a Docker
+Now that we have the Dockerfile to build our application, we need a Docker
 Compose file so we can run the database and then test these containers to see
 if everything works fine.
 
@@ -208,10 +218,10 @@ one for the PostgreSQL database, and one setup container for running initializat
 This setup container will be run before the actual application, and it's
 going to migrate our database.
 
-> It's a good practice to run tasks in separate containers. In a production scenario
+> TIP: It's a good practice to run tasks in separate containers. In a production scenario
 > you may want to run several containers for your web application, and if you run initialization
 > commands in that same container (such as migrations), you'll have collisions, since
-> all the container will be running those commands before start.
+> all the containers will be running those commands before start.
 
 ### Setup Container
 
@@ -222,12 +232,12 @@ that we're running our web application. That would work fine if you're deploying
 only one container, but suppose you want to scale your application and you want to run
 ten containers, then every one of those containers will try to execute
 those commands during startup time and things can get ugly. With that said, it's
-always better to separate concerns and to use an independent container for running
+always better to separate concerns and to use an independent container to run
 tasks and then just remove it once it finishes.
 
 This setup container has to use the same Dockerfile that we just created
 since it needs access to the whole application environment. The only part we need to
-overwrite it's the entrypoint.
+overwrite is the entrypoint.
 
 Right now we don't have an entrypoint for our container since
 we want to use the one the same image is providing for us. But since this
@@ -261,7 +271,7 @@ that the PostgreSQL service endpoint will be reachable by using the `postgres`
 alias.
 Finally, when the connection is alive, we can run the latests migrations.
 
-Let's also add the proper execution permissions to this file:
+Let's also add the proper execution permissions for this file:
 
     $ chmod +x setup.sh
 
@@ -355,7 +365,7 @@ lives inside of the container.
 
 You also may want to create a data-only container for holding our database data.
 This way, is we destroy the postgres container for some reason, our development
-data would still be there. This patter is useful for all other kind of stateful applications, like
+data would still be there. This pattern is useful for all other kind of stateful applications, like
 search engines, cache stores, etc.
 
 We can add this data-only container with:
@@ -412,7 +422,7 @@ The final `docker-compose.yml` file should look like this:
 
 ### Build and Run
 
-Let's run a Docker Compose build first for building our web application and
+Let's run a Docker Compose build first to build our web application and
 setup containers:
 
     $ docker-compose build
@@ -437,7 +447,7 @@ Output (truncated):
 
 The first time you run this command it may take some time, since the Docker engine has
 to pull the image, install the dependencies and install the gems inside the container. If you
-follow the output of the build, you should all these steps.
+follow the output of the build, you should see all these steps.
 
 At the end you should see something like this in the output:
 
@@ -591,10 +601,10 @@ Output:
 
 Great! Our application is running correctly on development environment.
 
-## Adding a resource
+## Adding a Rails resource
 
 We said this was going to be an API for managing articles, so let's create
-a simple article resource.
+a simple articles resource.
 
 For this, we can run a simple command with Docker Compose, that uses our same
 webapp service but also overrides the entrypoint with whatever we want.
@@ -692,16 +702,16 @@ believe me let's run a Rails console and inspect a little bit:
 
 We can use the `exec` command to open extra processes inside of our containers. In this case
 I'm running the `rails c` command which will run the console in that container and keep
-the interactive mode so we can try some commands. As you can see, we have the record
+the interactive mode so we can run commands. As you can see, we have the record
 we just created via cURL, so we are pretty sure our setup is working properly.
 
-> Tip: Use `docker-compose up -d` to run your environment in detached mode so you
+> TIP: Use `docker-compose up -d` to run your environment in detached mode so you
 > can keep using that same terminal window to interact with your container.
 
 ## Log issues
 
 A very important and complex topic with container is Logging.
-Docker logs work by inspecting the `STDOUT` connection. That's a problem for
+Docker logging mechanism works by inspecting the `STDOUT` connection. That's a problem for
 a Rails application, since all the logging is piped to a file in the log's directory.
 Luckily for us, we just need to change one line in our source code to send the logs
 to the `STDOUT` connection.
@@ -748,7 +758,7 @@ in action:
 
 Having your logs propertly configured is important for production tools like
 Kubernetes and ECS, where inspecting things can be more difficult than on development.
-You don't want to go inside of your production containers and start to follow logs, mainly
+You don't want to go inside of your production containers and start to follow log files, mainly
 because you'll first would have to find the right node that's running that container, and that
 ruins the whole point of clustered applications.
 
@@ -766,9 +776,9 @@ That's going to ask you for your DockerHub credentials.
 Now go to `https://hub.docker.com/` and create a new public repository and name it `webapp`.
 
 A change that we want to make first, it's to create a dockerignore file. 
-I said before that we want to keep our images as lightest as possible, so the same way we do
-did our Git Repositories, there are some files we can ommit.
-Let's create .dockerignore file and add the files we don't want to copy into our
+I said before that we want to keep our images as lightest as possible, so the same as GitHub repositories,
+there are some files we can omit.
+Let's create a `.dockerignore` file and add the files we don't want to copy into our
 images:
 
     $ touch .dockerignore
@@ -790,7 +800,7 @@ And add:
 We are basically copying what's inside of the .gitignore file for a standard Rails app.
 
 Now, let's build an initial version of our application. A practice that I've found to be
-good and clear, is to tag the images accord to your latest Git commit hash. Of course
+good and clear, is to tag the images with the latest Git commit hash. Of course,
 we want to use the short version of the commit.
 
 First, we have to tell git that this is a repository, so in the root of your
