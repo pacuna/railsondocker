@@ -1,4 +1,90 @@
-# Kubernetes
+# Cabernet's
+
+## Concepts
+
+### Introduction
+
+Kubernetes has several components you can use to build your architecture.
+We aren't going to go deep in all of these objects. I'll give a brief
+overview of the most important ones that you know.
+Also, Kubernetes is still in heavy development, so new features and new objects
+appear with every big release.
+
+The objects we are going to see are Pods, Jobs, Volumes, Replica Sets, Services and Deployments.
+This are the basic elements to build almost any application. Then you can use
+the other objects in case you need more specific features like keeping secrets
+in your cluster, having certain network policies, or having different namespaces.
+
+### Pods
+
+The Pod is the first level of abstraction in Kubernetes. It's just one level above
+the container. The difference is you can several container running in the same Pod.
+In general, is not recommended to have more than one container running in the same Pod
+unless it's a very specific case where it actually make sense. Normally
+you want to have one container per Pod.
+For our application, we'll use different Pods for our web app and for PostgreSQL.
+
+### Replica Set
+
+This object manages our desired number of replicas for a Pod.
+For example we can specify that we need at least 3 replicas for certain Pod. Then
+the Replica Set will make sure that these 3 replicas are always up. If one Pod
+dies for any reason, the Replica Set will create a new one.
+
+### Jobs
+
+A Job is simply a Pod with a well defined task to accomplish. The action that
+a Job does better than a Pod has to do with task completion. 
+Every time you launch a Job, if for some reason the task fails, the Job
+will be killed and it'll start again until the task finishes. If you use a regular
+Pod to run your task, you won't be sure your task gets completed, because if the Pod
+dies, it won't start again.
+Jobs are super effective for tasks such as fetching data from external sources,
+long data processing tasks, long computing tasks, etc. But they are also useful
+to keep separate our application maintenance tasks and our actual web application containers.
+For example, in a typical Rails application we need to run migration and precompile assets
+before a new deploy. Instead of running these tasks in the same web app container, we can run them
+by launching independent Jobs and that way avoid collisions in the case we launch several
+web application Pods.
+
+### Volumes
+
+This object is pretty similar to what we know as Volumes in Docker.
+It allows us add a persistent object to our Pods. The big advantage that Kubernetes has
+is that it has a tight integration with cloud providers like AWS and GCE. This integration
+make possible the use of storage units like EBS in the case of AWS.
+That's very important, since in some cases, simple volume mounts in the same hosts is not
+enough. For example, let's say you have a Database running in a container, and you want
+to mount the data folder so your data is persisted in the host. What happens if you run
+a new container version of your Database and it gets deployed on a new node? Then
+the volume mount won't work, because the data is persisted on another machine.
+On the other side, if you mount a volume using something like EBS, then it's always
+going to be that same external storage unit and you won't have any issues if your
+container launches on different machines every time.
+
+### Services
+
+A service is going to give us a static end point for our Replica Sets and Pods.
+Every time you launch a new version of your Pods, their IP address will change.
+It doesn't matter if it is internal or external, we need a mechanism to route
+requests to those Pods.
+A service can be a typical Load Balancer, or just declare that we want to expose
+a port in our cluster that routes requests to the same group of Pods.
+Every container orchestration framework has a mechanism to handle this issue. It's
+necessary if you want to have a public end point for your application.
+
+Kubernetes also has a nice integration with AWS ELBs. You can declare that your
+service should be a Load Balancer and Kubernetes will create and associate one automatically.
+
+### Deployments
+
+Deployments were introduced in one of the latest Kubernetes releases. It can
+be a little bit confusing at first, but when you star to using them, you see their value
+and how they can make your update process to run very smoothly.
+In a Deployment declaration, you can have your Replica Set and Pod specifications
+declared together. The deployment will be in charge of running updates to the states
+of these elements. So you can update the image in your Deployment, and the 
+respective Replication Set and Pods will be updated as well.
 
 ## Structuring the files
 
