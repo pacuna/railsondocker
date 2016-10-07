@@ -843,3 +843,22 @@ will continue and the new image will be deployed in the cluster.
 The final part is to create a Hook for triggering build when pushing to the GitHub
 repository. For that, please take a look on the Push to Deploy section
 for the Kubernetes Job. The process is the same.
+
+## Summary
+
+In this chapter we saw how a CI server can helps us out to create a deployment pipeline
+to run our containerized architecture.
+You could saw the power and flexibility of Jenkins as a CI server and the little amount
+of configuration that required.
+We created all the needed resources with the AWS CLI so you can have a fast mechanism
+to launch them and also we use several bash scripts in our build steps so our Jenkins Jobs
+were as simples as possible. This also allows to replicate and create new Jobs very easily.
+
+A very important aspect of CI is to undestand correctly the workflow and the lifecycle of a
+deployment. 
+We started by pulling the latest changes from our GitHub repository, we then generate
+a new image which is pushed to our DockerHub repository, and finally update the corresponding
+templates to apply the changes in the containers within the cluster.
+
+Finally we used Docker Compose to add a new build step were we run our test suite. This will prevent
+pushes that break tests by stopping deployments that return error from this step.
