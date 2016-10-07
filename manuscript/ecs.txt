@@ -1,4 +1,4 @@
-# ECS
+# Amazon EC2 Container Service (ECS)
 
 ## Concepts
 
@@ -28,6 +28,9 @@ In this book we will be using the ECS CLI tool to create our cluster.
 A Task Definition is the template where we declare a group of containers that'll
 run on the same instance. You'll probably will be running just one container per
 task definition, but it's good to know that you can run more than one container if you wish to.
+Think of a task definition as an skeleton for a task, which the actual instances of the task
+definition and it'll run within the cluster and managed by a task scheduler.
+
 An example task definition for our application is:
 
     {
@@ -114,8 +117,8 @@ This is similar to what we did in Kubernetes with the concept of Jobs.
 The service is element that's going to give us a static end point for our running tasks.
 Normally it'll be associated with a Load Balancer so you can balance the traffic among
 your replicas. The service it's also in charge of maintaining the desired number of
-tasks running. If you read about the concepts in Kubernetes, the ECS service
-is like a mix between a Replication Set and a Kubernetes Service.
+running tasks. If you read about the concepts in Kubernetes, the ECS service
+is like a mix between a Replication Set and a Kubernetes Service. 
 
 If we want to associate an ELB to our service, we have to create it first. Then
 we can specify the ELB identifier in the service definition in the following way:
@@ -290,7 +293,7 @@ have an internal IP address and also an alias so the other services can communic
 with them.
 
 Another problem with ECS is that there's no support for associating cloud storage
-to the instances. You can mount volumes from the containers to the instance, but
+to the instances. You can mount volumes from the containers to the instances, but
 that doesn't work if your container will be jumping from one instance to another, which
 is what typically occurs during deployments. 
 Again, Kubernetes has support for persistence by integrating itself with
@@ -299,9 +302,10 @@ will always be external to the cluster and the nodes, so it doesn't matter if a 
 is launched on a different node that it was before, because the data lives outside of
 the cluster.
 
-This two reasons are why I recommend you to not use ECS to run containers
-that need persistence. This goes for things like Databases, Search engines, cache storages,
-etc.
+> These two reasons (no native support for DNS discovery and no support for storage objects)
+> are why I recommend you to not use ECS to run containers
+> that need persistence. This goes for things like Databases, Search engines, cache storages,
+> etc.
 
 Luckily for us, we don't have to mount a server with a database engine
 and configure the whole thing by ourselves, since AWS has a very good database-as-a-service software called RDS.

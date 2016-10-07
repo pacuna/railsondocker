@@ -799,7 +799,42 @@ Add the following in the text area:
         exit 1
     fi
 
-If you haven't created the docker-compose.test.yml along with the setup.test.sh
+Our `docker-compose.test.yml` should be:
+
+    version: '2'
+    services:
+      webapp_test:
+        container_name: webapp_test
+        build: .
+        depends_on:
+          - postgres
+        environment:
+          - PASSENGER_APP_ENV=development
+        entrypoint: ./setup.test.sh
+      postgres:
+        image: postgres:9.5.3
+        environment:
+          - POSTGRES_PASSWORD=mysecretpassword
+          - POSTGRES_USER=webapp
+          - POSTGRES_DB=webapp_test
+
+And the `setup.test.sh`:
+
+    #!/bin/sh
+
+    echo "Waiting PostgreSQL to start on 5432..."
+
+    while ! nc -z postgres 5432; do
+      sleep 0.1
+    done
+
+    echo "PostgreSQL started"
+
+    bin/rails db:create RAILS_ENV=test
+    bin/rails db:migrate RAILS_ENV=test
+    bin/rake RAILS_ENV=test
+
+If you haven't created the docker-compose.test.yml and the setup.test.sh
 file, go to the test suite part of the Kubernetes Job's section.
 That script will run our test suite and check for the status code of the process.
 If the tests fail, the deploy will be interrupted. If the tests pass, the deployment

@@ -1801,6 +1801,11 @@ As you can see, we only need the name of our deployment, the container we want t
 the new image the container should be built from. Normally this would be the same original image 
 but with a different tag. In our case the latest commit hash.
 
+Before deployments came into play, the usual way of updating services was by using 
+the `rolling-update` command. This command will updated one pod a time and it only support
+replication controllers. Kubernetes recommends to use Deployments and Replica Sets to manage your updates
+instead of using Replication Controllers with rolling updates.
+
 Let's create a new folder for this new deployment script and move the push.sh script inside of it:
 
     $ mkdir deploy
