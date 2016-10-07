@@ -15,10 +15,22 @@ using containers.
 
 ## Dependencies
 
-The Docker and Docker Compose versions I'll be using for this section are:
+The only dependencies we need are Docker and Docker Compose.
+A nice thing about using containers is that we don't have to pollute our system with a lot of dependencies.
+In our case we are going to build a Rails application with a PostgreSQL database, but
+we won't install any of those.
 
-- Docker Version 1.12.1
-- Docker Compose version 1.8.0
+The Docker installation will change depending on your system. You can find the proper
+way to install it on your operating system in the [official documentation](https://docs.docker.com/engine/installation/).
+
+Once you have Docker installed, you can check the version with `docker version`.
+The version I'll be using is `1.12.2`.
+
+The other dependency we need, is Docker Compose. You can find the installation
+instructions [here](https://docs.docker.com/compose/install/). Again, this
+installation will be different depending on your OS.
+After that, check your version with `docker-compose version`. I'll be using
+version `1.8.1`.
 
 ## Creating the application
 
@@ -74,13 +86,17 @@ Since we don't have any dependencies installed on our machine, we cannot test th
 typical way by running `rails s`. Remember we don't even have Rails installed. So we'll
 have to wait a little bit until we can run the `webapp` within a Docker container.
 
-## Dockerizing the application
+## Dockerizing Rails
 
 With all the Docker images available these days, it's pretty easy to dockerize
-an application. In our case we only going to need something for the Rails app
+any type of application. In our case we only going to need something for the Rails app
 and something for PostgreSQL. For Rails you have practically the same
 options you have when you don't use containers for deployments (Unicorn, Puma, Passenger, etc). And for PostgreSQL
 we can use the official image from DockerHub.
+
+If you explore DockerHub, you can find almost any image you need. And if you don't,
+you can always use a base image, and build a new one by adding the dependencies you need
+on top of it.
 
 For Ruby/Rails I strongly recommend you to use the [phusion passenger-docker](https://github.com/phusion/passenger-docker) image.
 It has a lot of features and a very nice documentation.
@@ -422,8 +438,10 @@ The final `docker-compose.yml` file should look like this:
 
 ### Build and Run
 
-Let's run a Docker Compose build first to build our web application and
-setup containers:
+Let's run the Docker Compose build command to build our web application and
+setup containers. During this section we'll be using the most common Docker Compose commands.
+One important thing is that you should always run these commands in the same directory
+where the `docker-compose.yml` file is:
 
     $ docker-compose build
 
@@ -771,7 +789,9 @@ First, make sure you are logged in with your Docker account by running:
 
     $ docker login
 
-That's going to ask you for your DockerHub credentials.
+That's going to ask you for your DockerHub credentials, then it's going create a configuration
+file in a `.docker/config.json` file in your home path. This way, you don't have to log in
+everytime you need to interact with your repositories.
 
 Now go to `https://hub.docker.com/` and create a new public repository and name it `webapp`.
 

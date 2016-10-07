@@ -2,7 +2,35 @@
 
 ## Introduction
 
-Kubernetes has several components you can use to build your architecture.
+Kubernetes defines itself as an open-source system for automating deployment,
+scaling, and management of containerized applications.
+This project was originally designed by Google and it's a product based
+on years of experiece running containerized arquitectures.
+Since this is an open source project, it also has a very big community behind that's
+constantly discussing improvements and new ideas.
+
+### Kubernetes architecture
+
+Like most of the cluster management tools, Kubernetes works with a node-master
+architecture. All the nodes run an agent that's called `kubelet` and the master
+run other components such as APIs and a scheduler.
+
+All the nodes have Docker and are managed from the master systems. `Kubelet`
+is in charge of managing the `Pods` and the containers in all aspects. We'll talk
+more about Pods later, but now just think of them as an abstraction that groups
+containers.
+The nodes also run a network proxu and load balancer. These allow to to have
+static endpoints for our container which are defined through services. This
+is the part that allow communication inside the cluster between the different services
+but also from outside the cluster.
+
+On the master, the essentials components are `etcd` which is a key-value data store
+that keeps the state and allows the coordination between components, and the scheduler, 
+as you can imagine, manages the scheduling of the Pods.
+
+Another important element is the API Server. This component serves the Kubernetes API
+which provides several REST operations to interact with the cluster.
+This API defines a lot of different objects you can use to deploy your applications.
 We aren't going to go deep in all of these objects. I'll give a brief
 overview of the most important ones that you need to know.
 Also, Kubernetes is still in heavy development, so new features and new objects
@@ -13,7 +41,7 @@ This are the basic elements to build almost any application. Then you can use
 the other objects in case you need more specific features like keeping secrets
 in your cluster, having certain network policies, or having different namespaces.
 
-## Concepts
+## Main Objects
 
 ### Pods
 
@@ -22,6 +50,8 @@ the container. The difference is you can have several container running in the s
 In general, is not recommended to do  this unless it's a very specific case where it actually makes sense. Normally
 you want to have one container per Pod.
 For our application, we'll use different Pods for our web app and for PostgreSQL.
+The exterior requests can be routed to a Pod via services. The Pod's metadata
+will allow to do a match so the respective service can know to where route the requests.
 
 An example template for a Pod for our application is:
 
@@ -64,6 +94,11 @@ This object manages our desired number of replicas for a Pod.
 For example we can specify that we need at least 3 replicas for certain Pod. Then
 the Replica Set will make sure that these 3 replicas are always up. If one Pod
 dies for any reason, the Replica Set will create a new one.
+On previous Kubernetes versions, the object that provided these functionalities was
+the Replication Controller. Even though this is still supported, Kubernetes
+defines the Replica Set as the next-generation Replication Controller. And the only
+difference is that the Replica Set has support for a different type of selectors to
+filter certain objects.
 
 An example Replica Set for our application is:
 
@@ -147,8 +182,14 @@ never be restarted until you run it again. We make sure of that by adding a `res
 ### Volumes
 
 This object is pretty similar to what we know as Volumes in Docker.
-It allows us add a persistent object to our Pods. The big advantage that Kubernetes has
-is that it has a tight integration with cloud providers like AWS and GCE. This integration
+It allows us add a persistent object to our Pods. Remember that when a container crashes, 
+it gets restarted, by `kubelet` in this case, but all its disk files will be lost. And that's because
+Docker filesystems are temporary by default.
+Volumes also solve the issue of sharing data between different containers. These containers
+can mount the same volume to access the files inside the volume.
+
+The big advantage that Kubernetes has is that it has a tight integration with
+cloud providers like AWS and GCE. This integration
 makes possible the use of storage units like EBS in the case of AWS.
 That's very important, since in some cases, simple volume mounts on the same host is not
 enough. For example, let's say you have a Database running in a container, and you want
@@ -490,7 +531,9 @@ tagging:
           restartPolicy: Never
 
 This Pod has a very simple definition. It has a `restartPolicy` of never, so
-once it finishes it doesn't get restarted by the scheduler.
+once it finishes it doesn't get restarted by `kubelet`. All failed containers
+are restarted by `kubelet` using an exponential back-off delay. If a `restartPolicy`
+is not defined, the default is `Always`.
 
 The `containers` section contains the specs for the image that we just pushed
 to DockerHub.
@@ -613,7 +656,10 @@ other tool you use daily to work on your code.
 
 You can find the installation instructions for Minikube in the [official repository](https://github.com/kubernetes/minikube).
 Check the releases page to find the instructions related to your operating system. 
-In general, the installation should be pretty straightforward.
+In general, the installation should be pretty straightforward. The easiest way
+to install Minikube is just to download the Go binary and then add it to your path.
+An important requirement for Minikube, is a virtualization mechanism. You have different
+options such as `xhyve`, `VirtualBox` or `KVM` depending on your OS.
 
 The version I have on my machine is v0.10.0 and I'll be using the `xhyve` driver.
 You can use whatever is best for your platform.
@@ -935,6 +981,10 @@ so we could interact with our local cluster with `kubectl`.
 
 After we create our new AWS cluster, the Kubernetes installation script will create a new
 context for us, so we can switch back and forth between Minikube and the production cluster.
+
+Remember that in order to run all these steps, you need to have an AWS account and
+you have to configure the AWS CLI to be used by Kubernetes. For more information
+you can go to the Setting up tools for Production section in this book.
 
 The [getting started guide for AWS](http://kubernetes.io/docs/getting-started-guides/aws/)
 indicates that we can run a simple command for launching a cluster with some
@@ -1385,9 +1435,13 @@ A very useful integration between Kubernetes and AWS consists in that you can
 mount AWS Volumes in a very transparent way into your containers. We only need to create
 a volume through the AWS API and then add a new section in the deployment
 file for the service you want to persist. In our case we only need persistence
-for the PostgreSQL container. With that in place, if the container gets killed, the data
-will remain in the AWS Volume and can be read by the next container placed by the Kubernetes
-scheduler.
+for the PostgreSQL container. With that in place, if the container crashes, the data
+will remain in the AWS Volume and can be read by the next container placed by Kubernetes.
+
+Kubernetes currently has three recycling policies for Volumes. These are Retain, Recycle
+and Delete. Depending on the type of Volume, you can use some of these policies. For example, 
+for AWS you can use Delete, which will delete the associated storage (EBS) once the Volume
+is deleted.
 
 Let's start by creating the volume. We can do this with a very simple command
 using the AWS CLI. The only detail here is that you need to use the same region
@@ -1738,7 +1792,7 @@ and the deployments.
 ## Automation scripts
 
 Automating the deployment is actually pretty easy. We just have to combine our
-current push.sh script with a new command that's going to set a new image in our current
+current `push.sh` script with a new command that's going to set a new image in our current
 deployment. This command looks like this:
 
     $ kubectl set image deployment my-deployment container=image:new-tag
