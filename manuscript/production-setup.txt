@@ -187,3 +187,13 @@ This tool has a great documentation. You can use the online documentation
 or use the `help` command and use the documentation on your console.
 If at any point you have doubts with a command that we use during the book, just
 jump to the documentation to get more information.
+
+## Summary
+
+In this chapter, we prepared the essentials tools we'll need to run our
+orchestration frameworks. Since this book is focused on Amazon Web Services, we need
+to have certain tools available on our system and later on our CI Server.
+Now you should know how to install the AWS CLI and the ECS CLI and also the basics
+on how to manipulate the output for the AWS CLI. This is important since we'll run
+serveral different command to create our AWS resources and controlling the CLI
+output can serve as a quick feedback mechanism to collect and inspect data we may need.
