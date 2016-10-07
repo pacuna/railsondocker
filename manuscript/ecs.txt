@@ -1305,3 +1305,19 @@ And the migrate:
 And that's it! Later we are going to use these scripts for building a pipeline
 with Jenkins. Jenkins will execute the scripts after every deploy we make to
 a GitHub branch.
+
+## Summary
+
+After this chapter, you should be able to run your Rails application using Amazon ECS.
+You should also be able to see the main differences between ECS and Kubernetes and
+choose the solution that makes more sense to you. 
+You can see both technologies are pretty strong and have mostly conceptual differences.
+Although Kubernetes seems to have a better integration in some areas like Volumes and DNS,
+ECS is tighly integrated with all the AWS components, which makes it a very solid choice
+if you run your system on AWS.
+Same way we did during the Kubernetes chapter, we ended the chapter creating a couple
+of automation scripts to run deploys in a very efficient and structured way.
+
+In the next chapter, we'll take the automation to the next level by using a Continuous
+Integration Server to run our deployments along with our test suite.
+
