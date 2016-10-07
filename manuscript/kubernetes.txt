@@ -1868,3 +1868,19 @@ And that's it! Now if you want to make changes to your code and deploy a new ver
 have to commit your changes and the just run `deploy/push.sh`. If you want run migrations, you can
 just run `deploy/migrate.sh`. You can even built another script that uses both for every
 deployment, which is what we will later do with Jenkins.
+
+## Summary
+
+After this chapter, you should know how to run a Rails application in a Kubernetes cluster.
+We started by studying the basics of the Kubernetes architecture and the main objects
+you'll use when running web applications. These are Pods, Replication Sets, Services, Volumes, Jobs
+and Deployments.
+We talk about the importance of Labels, which allow the match between the different objects
+that need communication.
+We were able to succesfully deploy our example application and also add a persistence layer
+by using Volumes thanks to AWS EBS and the Kubernetes integration.
+Finally, we build two automation scripts to run fast deliveries. The first one
+was to run migrations and the second one to run deployments to the actual source code.
+
+Next, will see how to accomplish a similar workflow by using another big orchestration framework
+created Amazon.
