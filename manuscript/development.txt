@@ -884,4 +884,13 @@ And add the following:
 Now, every time we need to push to DockerHub from our local machine we can
 just run `./push.sh`
 
+## Summary
 
+In this chaper, we've seen how to Dockerize a Ruby on Rails application using
+Docker and Docker Compose. We were able to create a new Rails app without
+having any dependencies but Docker installed on our machine and also how to
+keep a smooth development workflow when working with containers.
+We also saw a good way of structuring our Docker images by using commit hashes to
+tag them before pushing them to DockerHub.
+Finally, we started our first little automation script to build our image and push it
+to DockerHub using our tagging schema.
